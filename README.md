@@ -3,8 +3,8 @@
 Self-hosted, real-time GitHub Actions pipeline visualizer for your whole
 organization — think "ArgoCD, but for GitHub Actions pipelines."
 
-Convoy installs a GitHub App on your org and shows every repository's
-workflow runs on one screen, split into two views:
+Convoy installs a GitHub App on your org (or your own account) and shows
+every repository's workflow runs on one screen, split into two views:
 
 - **Deploys** — runs triggered by a production release (a version tag, or a
   published GitHub Release)
@@ -15,19 +15,34 @@ hundreds of repositories without hammering the GitHub API.
 
 ![Convoy dashboard](docs/assets/screenshot.png)
 
-## Try it without a GitHub App
+## Quickstart
 
-Want to see it before setting anything up?
+**Just want to look at it first?**
 
 ```bash
+git clone <this repo> && cd convoy
 npm install
 npm run demo
 ```
 
-This runs Convoy against seeded fake data (no GitHub App, no webhooks, no
-network calls) at `http://localhost:3000` — the exact same frontend and API
-the real thing uses, just fed made-up repos instead of your org's. Good for
-a first look, or for generating screenshots.
+Opens at `http://localhost:3000` with seeded fake data — no GitHub App, no
+webhooks, no setup. Good for a first look.
+
+**Want it running on your own repos?**
+
+```bash
+cp .env.example .env
+npm run dev
+```
+
+The first run walks you through creating a GitHub App in your browser and
+installing it on whichever repos you want Convoy to watch. That's it —
+`http://localhost:3000` now shows their real pipelines, live.
+
+This is meant to run as a persistent service, not something you open and
+close — like ArgoCD, it's only useful while it's up. See
+["Running it for real"](#running-it-for-real) below for Docker/Kubernetes,
+and the [full setup guide](#setup) if `npm run dev` doesn't just work.
 
 ## Why
 
@@ -78,8 +93,14 @@ workflow-name), plus an `excludeRepos` list for archived/irrelevant repos.
 
 ## Access control
 
-Convoy intentionally does not ship its own user login system in v1. Two
-options, depending on your setup:
+**Publishing Convoy's source code doesn't expose anything about your running
+instance** — your GitHub App's private key and webhook secret live only in
+your own `.env`/Kubernetes Secret, never in git. The one thing you do need to
+think about: the webhook endpoint (`/api/github/webhooks`) has to be public
+so GitHub can reach it, and it's safe to leave open — it verifies GitHub's
+signature and rejects anything else. The **dashboard itself** is not
+authenticated by default, so if it's reachable from the public internet, put
+something in front of it:
 
 1. **Put it behind your existing SSO/VPN/authenticating ingress** — the
    normal way most internal tools are gated. Convoy doesn't need to know who
@@ -89,7 +110,44 @@ options, depending on your setup:
    `Authorization: Bearer <key>`. This is a stopgap, not a real access
    control system — prefer (1) if you can.
 
+## Running it for real
+
+**Docker:**
+```bash
+docker run -p 3000:3000 \
+  -e APP_ID=... \
+  -e WEBHOOK_SECRET=... \
+  -e PRIVATE_KEY_PATH=/app/private-key.pem \
+  -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
+  -v $(pwd)/convoy.yaml:/app/convoy.yaml:ro \
+  ghcr.io/YOUR_ORG_OR_USER/convoy:latest
+```
+
+**Kubernetes (Helm):**
+```bash
+helm install convoy ./helm/convoy \
+  --set-file github.privateKey=./private-key.pem \
+  --set github.appId=<APP_ID> \
+  --set github.webhookSecret=<WEBHOOK_SECRET> \
+  --set ingress.host=convoy.your-internal-domain.com
+```
+
+See `helm/convoy/values.yaml` for the full set of configurable values.
+Pulling from a private registry? Set `imagePullSecrets` too.
+
+Already manage credentials through External Secrets Operator, Vault, or a
+cloud secret manager instead of plain `--set`/`--set-file`? Set
+`secret.create=false` and point Convoy at a Secret you provide yourself —
+see `helm/convoy/examples/` for an Azure Key Vault example (the same shape
+works for AWS/GCP/Vault).
+
+In your GitHub App settings, set the webhook URL to your deployed instance's
+`/api/github/webhooks` endpoint.
+
 ## Setup
+
+The Quickstart above covers the normal path. This section is the detailed
+version, for when something doesn't just work.
 
 ### 1. Create the GitHub App
 
@@ -142,33 +200,8 @@ of relying on the automatic manifest flow:
 
 ### 2. Run it
 
-**Docker:**
-```bash
-docker run -p 3000:3000 \
-  -e APP_ID=... \
-  -e WEBHOOK_SECRET=... \
-  -e PRIVATE_KEY_PATH=/app/private-key.pem \
-  -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
-  -v $(pwd)/convoy.yaml:/app/convoy.yaml:ro \
-  ghcr.io/YOUR_ORG_OR_USER/convoy:latest
-```
-
-**Kubernetes (Helm):**
-```bash
-helm install convoy ./helm/convoy \
-  --set-file github.privateKey=./private-key.pem \
-  --set github.appId=<APP_ID> \
-  --set github.webhookSecret=<WEBHOOK_SECRET> \
-  --set ingress.host=convoy.your-internal-domain.com
-```
-
-See `helm/convoy/values.yaml` for the full set of configurable values.
-
-Already manage credentials through External Secrets Operator, Vault, or a
-cloud secret manager instead of plain `--set`/`--set-file`? Set
-`secret.create=false` and point Convoy at a Secret you provide yourself —
-see `helm/convoy/examples/` for an Azure Key Vault example (the same shape
-works for AWS/GCP/Vault).
+See ["Running it for real"](#running-it-for-real) above for the Docker and
+Helm commands.
 
 ### 3. Point GitHub at it
 
