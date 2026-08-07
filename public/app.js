@@ -206,6 +206,14 @@ function render() {
 function renderSummary(groups) {
   const c = countRepoBuckets(groups);
   const el = document.getElementById('summary');
+
+  // renderSummary rebuilds the whole control bar's innerHTML on every poll,
+  // which replaces the search <input> node outright — losing focus and
+  // cursor position mid-keystroke if we don't save and restore them here.
+  const searchEl = el.querySelector('.search');
+  const hadFocus = document.activeElement === searchEl;
+  const selStart = hadFocus ? searchEl.selectionStart : null;
+  const selEnd = hadFocus ? searchEl.selectionEnd : null;
   const liveState = lastError ? 'error' : 'live';
   const liveLabel = lastError ? 'ERROR' : 'LIVE';
   const updatedText = lastFetchedAt
@@ -253,6 +261,12 @@ function renderSummary(groups) {
     </div>
     <div class="filter-row">${filters}</div>
   `;
+
+  if (hadFocus) {
+    const newSearchEl = el.querySelector('.search');
+    newSearchEl.focus();
+    newSearchEl.setSelectionRange(selStart, selEnd);
+  }
 }
 
 function renderProgress(groups) {
@@ -336,8 +350,11 @@ function repoRowHtml(group) {
   const showAll = fullyExpandedRepos.has(repo);
   const visiblePipelines = showAll ? pipelines : pipelines.slice(0, PIPELINE_PREVIEW_LIMIT);
   const hiddenCount = pipelines.length - visiblePipelines.length;
+  // On the Deploys tab these entries are releases, not "pipelines" — the
+  // Pipelines tab is the only place that word actually describes them.
+  const unitLabel = currentTab === 'deploys' ? 'deploy' : 'pipeline';
   const showMore = hiddenCount > 0
-    ? `<button class="ghost show-more" onclick="event.stopPropagation(); showAllPipelinesFor('${repo}')">Show ${hiddenCount} more pipeline${hiddenCount === 1 ? '' : 's'}</button>`
+    ? `<button class="ghost show-more" onclick="event.stopPropagation(); showAllPipelinesFor('${repo}')">Show ${hiddenCount} more ${unitLabel}${hiddenCount === 1 ? '' : 's'}</button>`
     : '';
 
   const detail = expanded
@@ -351,7 +368,7 @@ function repoRowHtml(group) {
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
         <span class="repo-pips">${pips}</span>
-        <span class="repo-summary muted">${pipelines.length} pipeline${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</span>
+        <span class="repo-summary muted">${pipelines.length} ${unitLabel}${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</span>
         <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
       ${detail}
