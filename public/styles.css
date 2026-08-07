@@ -89,37 +89,60 @@ input.search::placeholder { color: var(--fog); }
 .pill.green { color: var(--arrived); } .pill.red { color: var(--down); }
 .pill.yellow { color: var(--rolling); } .pill.gray { color: var(--fog); }
 
-/* Cards */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-.empty-msg { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--fog); font-size: 13px; }
-.run { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  padding: 14px 15px; border-left: 4px solid var(--staged);
-  transition: transform 0.12s ease, box-shadow 0.12s ease; }
-.run:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
-.run.arrived { border-left-color: var(--arrived); }
-.run.down { border-left-color: var(--down); }
-.run.rolling { border-left-color: var(--rolling); }
-.run.staged { border-left-color: var(--staged); opacity: 0.9; }
-.run.pulled { border-left-color: var(--pulled); opacity: 0.85; }
+/* Repo rows — one row per repo (ArgoCD-style), pipelines nested inside via
+   expand, instead of a flat grid of individual run cards. */
+.grid { display: flex; flex-direction: column; gap: 8px; }
+.empty-msg { padding: 40px; text-align: center; color: var(--fog); font-size: 13px; }
+
+.repo-row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 /* Not hidden — a quiet repo still belongs on the board with its last known
    state. Just visually recedes so it doesn't compete with active ones. */
-.run.stale { opacity: 0.45; }
-.run.stale:hover { opacity: 0.8; }
+.repo-row.stale { opacity: 0.5; }
+.repo-row.stale:hover { opacity: 0.85; }
+.repo-row-head { display: flex; align-items: center; gap: 10px; padding: 12px 15px; cursor: pointer; }
+.repo-row-head:hover { background: var(--inset); }
+.repo-row.expanded .repo-row-head { background: var(--inset); border-bottom: 1px solid var(--line); }
+.expand-caret { color: var(--fog); font-size: 10px; width: 8px; flex-shrink: 0; }
+.repo-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.repo-dot.arrived { background: var(--arrived); }
+.repo-dot.down { background: var(--down); }
+.repo-dot.rolling { background: var(--rolling); animation: pulse 1.2s infinite; }
+.repo-dot.staged { background: var(--staged); }
+.repo-dot.pulled { background: var(--pulled); }
+.repo-name { font-family: var(--mono); font-weight: 600; font-size: 13px; word-break: break-all; }
+.repo-pips { display: flex; gap: 3px; flex-wrap: wrap; }
+.pip { width: 14px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.pip.arrived { background: var(--arrived); }
+.pip.down { background: var(--down); }
+.pip.rolling { background: var(--rolling); }
+.pip.staged { background: var(--staged); opacity: 0.6; }
+.pip.pulled { background: var(--pulled); }
+.repo-summary { font-size: 11.5px; margin-left: auto; white-space: nowrap; }
+
+.repo-detail { display: flex; flex-direction: column; gap: 1px; }
+
+.pipeline { background: var(--inset); padding: 12px 15px 12px 24px; border-left: 3px solid var(--staged); }
+.pipeline.arrived { border-left-color: var(--arrived); }
+.pipeline.down { border-left-color: var(--down); }
+.pipeline.rolling { border-left-color: var(--rolling); }
+.pipeline.staged { border-left-color: var(--staged); opacity: 0.9; }
+.pipeline.pulled { border-left-color: var(--pulled); opacity: 0.85; }
+.pipeline.stale { opacity: 0.5; }
 .run-updated { font-family: var(--mono); font-size: 10px; color: var(--fog); margin-top: 8px; }
 
-.run.flash-arrived { animation: flashArrived 1.4s ease-out; }
-.run.flash-down { animation: flashDown 1.4s ease-out; }
-.run.flash-rolling { animation: flashRolling 1.4s ease-out; }
-.run.flash-pulled { animation: flashPulled 1.4s ease-out; }
+.pipeline.flash-arrived { animation: flashArrived 1.4s ease-out; }
+.pipeline.flash-down { animation: flashDown 1.4s ease-out; }
+.pipeline.flash-rolling { animation: flashRolling 1.4s ease-out; }
+.pipeline.flash-pulled { animation: flashPulled 1.4s ease-out; }
 @keyframes flashArrived { 0% { box-shadow: 0 0 0 0 rgba(53, 208, 127, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(53, 208, 127, 0); } }
 @keyframes flashDown { 0% { box-shadow: 0 0 0 0 rgba(255, 92, 92, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(255, 92, 92, 0); } }
 @keyframes flashRolling { 0% { box-shadow: 0 0 0 0 rgba(245, 183, 64, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(245, 183, 64, 0); } }
 @keyframes flashPulled { 0% { box-shadow: 0 0 0 0 rgba(74, 69, 104, 0.7); } 100% { box-shadow: 0 0 0 10px rgba(74, 69, 104, 0); } }
 
-.run-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 10px; }
-.run-repo { font-family: var(--mono); font-weight: 600; font-size: 13px; word-break: break-all; }
+.pipeline-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 8px; }
+.pipeline-name { font-family: var(--mono); font-weight: 600; font-size: 12.5px; }
 .run-ref { font-family: var(--mono); font-size: 11px; color: var(--signal); margin-top: 2px; }
-.run-actor { font-size: 10.5px; color: var(--fog); margin-top: 1px; }
+.run-actor { font-size: 10.5px; color: var(--fog); }
 .run-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .badge { font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
