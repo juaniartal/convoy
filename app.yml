@@ -1,0 +1,16 @@
+# GitHub App manifest defaults, used by Probot's manifest flow the first time
+# you run `npm run dev`. It opens a browser page pre-filled with these values
+# so you just click "Create GitHub App" instead of configuring everything by
+# hand. Safe to commit — it contains no secrets, only defaults.
+name: Convoy
+description: Self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization.
+url: https://github.com/YOUR_ORG_OR_USER/convoy
+public: false
+default_events:
+  - workflow_run
+  - workflow_job
+  - installation
+  - installation_repositories
+default_permissions:
+  actions: read
+  metadata: read

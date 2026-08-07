@@ -1,0 +1,54 @@
+# Default values for the Convoy Helm chart.
+
+image:
+  repository: ghcr.io/YOUR_ORG_OR_USER/convoy
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Convoy keeps pipeline state in process memory, not a database — running
+# more than one replica means each pod holds a different partial view, and
+# GitHub only delivers each webhook to one of them anyway. Do not change
+# this until Convoy has a shared state backend.
+replicaCount: 1
+
+github:
+  appId: ''
+  # PEM contents of the GitHub App's private key. Prefer passing this via
+  # `--set-file github.privateKey=./private-key.pem` rather than editing
+  # this file, so the key never ends up in a values.yaml on disk.
+  privateKey: ''
+  webhookSecret: ''
+
+# Optional shared-secret gate for the dashboard (Authorization: Bearer <key>).
+# Leave empty if your ingress/SSO already restricts who can reach this.
+apiKey: ''
+
+# Inline contents of convoy.yaml (classification overrides / exclude list).
+# Optional — Convoy works with sensible defaults if left empty.
+convoyConfig: ''
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: ''
+  host: ''
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ''
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

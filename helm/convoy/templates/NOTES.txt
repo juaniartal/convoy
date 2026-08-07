@@ -1,0 +1,15 @@
+Convoy is deploying.
+
+1. Point your GitHub App's webhook URL at:
+   {{- if .Values.ingress.enabled }}
+   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}/api/github/webhooks
+   {{- else }}
+   <your Service's address>/api/github/webhooks (ingress is disabled — set ingress.enabled=true or configure your own)
+   {{- end }}
+
+2. Check it's healthy:
+   kubectl port-forward svc/{{ include "convoy.fullname" . }} 3000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+   curl localhost:3000/api/healthz
+
+3. Remember: Convoy runs as a single replica by design (in-memory state, no
+   database in v1) — see values.yaml before changing replicaCount.

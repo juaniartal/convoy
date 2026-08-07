@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run format
+
+      - run: npm test
+
+      - run: npm run build
+
+      # --audit-level=high: blocks on real, actionable vulnerabilities without
+      # making CI flaky over every moderate advisory in an upstream package's
+      # transitive tree (common, often dev-only, and not something a PR
+      # author can fix by changing this repo's code).
+      - run: npm audit --audit-level=high

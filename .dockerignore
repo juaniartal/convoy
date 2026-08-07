@@ -1,0 +1,14 @@
+node_modules
+lib
+test
+.git
+.github
+helm
+*.md
+.env
+.env.example
+*.pem
+coverage
+.eslintrc.json
+.prettierrc.json
+tsconfig.eslint.json

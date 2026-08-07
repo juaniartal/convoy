@@ -1,0 +1,31 @@
+# Copy to convoy.yaml and point CONVOY_CONFIG_PATH at it (optional — Convoy
+# works with sensible defaults if this file doesn't exist at all).
+#
+# Default classification (no override needed): a run is a "deploy" if it was
+# triggered by publishing a GitHub Release, or by pushing a tag that looks
+# like a version (v1.2.3, 1.2.3-beta, etc.). Everything else — pushes to
+# main/qa/feature branches, manual runs, scheduled runs — is a "pipeline".
+#
+# Use overrides only for repos that don't follow that convention.
+
+overrides:
+  # Example: this repo deploys by merging to a long-lived branch, not by tag.
+  - repo: my-org/legacy-service
+    strategy: branch
+    deployBranches: [production]
+
+  # Example: this repo tags releases with a non-semver prefix.
+  - repo: my-org/tagged-service
+    strategy: tag-pattern
+    tagPattern: '^release-.*$'
+
+  # Example: classify by workflow name instead of ref shape.
+  - repo: my-org/named-workflow
+    strategy: workflow-name
+    deployWorkflows: ['Deploy to Prod']
+
+# Repos matched here (glob patterns) are ignored entirely — never fetched,
+# never shown. Useful for archived repos, forks, or non-service repos.
+excludeRepos:
+  - '*-archive'
+  - 'test-*'

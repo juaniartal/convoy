@@ -1,0 +1,40 @@
+{
+  "name": "convoy",
+  "version": "0.1.0",
+  "description": "Self-hosted, real-time GitHub Actions pipeline visualizer for an entire organization.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "probot run ./lib/index.js",
+    "start": "probot run ./lib/index.js",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "probot": "^14.3.2",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.2",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "nock": "^13.5.4",
+    "prettier": "^3.3.2",
+    "smee-client": "^2.0.1",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.10"
+  }
+}

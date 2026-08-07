@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "convoy.fullname" . }}
+  labels:
+    {{- include "convoy.labels" . | nindent 4 }}
+spec:
+  # Hard-pinned — Convoy's state is in-process memory, not a shared store.
+  # See values.yaml for why this must stay at 1 in v1.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "convoy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "convoy.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: convoy
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          envFrom:
+            - secretRef:
+                name: {{ include "convoy.fullname" . }}
+          {{- if .Values.convoyConfig }}
+          env:
+            - name: CONVOY_CONFIG_PATH
+              value: /etc/convoy/convoy.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/convoy
+              readOnly: true
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.convoyConfig }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "convoy.fullname" . }}-config
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

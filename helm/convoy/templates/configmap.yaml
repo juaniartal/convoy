@@ -1,0 +1,11 @@
+{{- if .Values.convoyConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "convoy.fullname" . }}-config
+  labels:
+    {{- include "convoy.labels" . | nindent 4 }}
+data:
+  convoy.yaml: |
+    {{- .Values.convoyConfig | nindent 4 }}
+{{- end }}
