@@ -6,11 +6,12 @@ name: Convoy
 description: Self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization.
 url: https://github.com/YOUR_ORG_OR_USER/convoy
 public: false
+# installation / installation_repositories are NOT listed here on purpose —
+# GitHub sends those to every App automatically regardless of subscription,
+# and rejects the manifest if you try to list them explicitly.
 default_events:
   - workflow_run
   - workflow_job
-  - installation
-  - installation_repositories
 default_permissions:
   actions: read
   metadata: read
