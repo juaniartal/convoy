@@ -157,14 +157,19 @@ export class StateStore {
 /**
  * A board shows current state, not history — a repo re-running the same
  * workflow five times in an hour (e.g. a busy qa branch merging repeatedly)
- * should occupy one card, not five. Grouped by repo+workflow+category so two
- * genuinely different workflows on the same repo (e.g. "CI" and "Deploy")
- * still both get shown.
+ * should occupy one card, not five.
+ *
+ * Grouped by repo+workflow+ref+category, not just repo+workflow — plenty of
+ * real setups trigger the *same* workflow name (e.g. "Containerize and
+ * Deploy") from many branches at once (qa, sandbox, staging...). Keying on
+ * workflow name alone would silently collapse "qa just finished" and
+ * "sandbox just finished" into a single card and drop one of them. The ref
+ * (branch or tag) is what actually distinguishes them.
  */
 function dedupeByLatestPerWorkflow(runs: RunSnapshot[]): RunSnapshot[] {
   const latest = new Map<string, RunSnapshot>();
   for (const run of runs) {
-    const key = `${run.repo}::${run.workflowName}::${run.category}`;
+    const key = `${run.repo}::${run.workflowName}::${run.headBranch}::${run.category}`;
     const existing = latest.get(key);
     if (!existing || run.updatedAt > existing.updatedAt) {
       latest.set(key, run);

@@ -281,12 +281,16 @@ function pipelineHtml(run) {
   const runDur = fmtDur(run.createdAt, label === 'running' ? null : run.updatedAt);
   const actorLine = run.actor ? `<span class="run-actor">by ${run.actor}</span>` : '';
 
+  // Branch/tag is the heading, not the workflow name — plenty of real setups
+  // trigger the exact same workflow ("Containerize and Deploy") from every
+  // branch, so the name alone is often the least useful label in the row.
+  // What actually differs, and what you're scanning for, is the ref.
   return `
     <div class="pipeline ${bucket} ${staleClass} ${flashClass}">
       <div class="pipeline-head">
         <div>
-          <div class="pipeline-name">${run.workflowName}</div>
-          <div class="run-ref">${run.headBranch ?? run.event} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
+          <div class="pipeline-name">${run.headBranch ?? run.event}</div>
+          <div class="run-ref">${run.workflowName} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
         </div>
         <div class="run-actions">
           <span class="badge ${bucket}">${BADGE_LABEL[label]}</span>
@@ -306,7 +310,8 @@ function repoRowHtml(group) {
   const pips = pipelines
     .map((p) => {
       const b = styleBucket(stateOf(p));
-      return `<span class="pip ${b}" title="${p.workflowName}: ${BADGE_LABEL[stateOf(p)]}"></span>`;
+      const ref = p.headBranch ?? p.event;
+      return `<span class="pip ${b}" title="${ref} (${p.workflowName}): ${BADGE_LABEL[stateOf(p)]}"></span>`;
     })
     .join('');
 

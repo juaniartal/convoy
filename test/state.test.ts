@@ -147,6 +147,28 @@ describe('StateStore', () => {
     expect(store.getSnapshot().runs).toHaveLength(2);
   });
 
+  it('does not collapse the same workflow running on two different branches', () => {
+    // Real-world setups often trigger one workflow (e.g. "Containerize and
+    // Deploy") from many branches — qa and sandbox finishing minutes apart
+    // must not collapse into a single card, or one environment silently
+    // disappears from the board.
+    const store = new StateStore();
+    store.upsertRun(
+      'org/repo',
+      makeRun({ id: 1, workflowName: 'Containerize and Deploy', headBranch: 'qa' }),
+    );
+    store.upsertRun(
+      'org/repo',
+      makeRun({ id: 2, workflowName: 'Containerize and Deploy', headBranch: 'sandbox' }),
+    );
+    expect(
+      store
+        .getSnapshot()
+        .runs.map((r) => r.headBranch)
+        .sort(),
+    ).toEqual(['qa', 'sandbox']);
+  });
+
   it('excludes runs older than maxAgeHours only when explicitly asked', () => {
     const store = new StateStore();
     const old = new Date(Date.now() - 72 * 3600_000).toISOString();
