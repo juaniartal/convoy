@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convoy — Self-hosted GitHub Actions board</title>
+<meta name="description" content="Convoy is a self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization. Think ArgoCD, but for CI pipelines.">
+<link rel="stylesheet" href="./fonts/fonts.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23A879FF'/%3E%3Cstop offset='1' stop-color='%238A54F0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='1' y='1' width='126' height='126' rx='30' fill='%23140F28' stroke='%232A2247' stroke-width='2'/%3E%3Cg fill='%237A45E0'%3E%3Cpath d='M40 46 L56 48 L46 18 Z'/%3E%3Cpath d='M88 46 L72 48 L82 18 Z'/%3E%3C/g%3E%3Ccircle cx='64' cy='72' r='46' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='80' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='48' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='80' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='51' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='77' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='55' cy='67' r='4' fill='%23fff'/%3E%3Ccircle cx='81' cy='67' r='4' fill='%23fff'/%3E%3Cpath d='M57 88 L71 88 L64 101 Z' fill='%23F5B740'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #0b0912; --panel: #171327; --inset: #120e20; --line: #272042;
+    --text: #ece9f7; --fog: #9a93b5;
+    --signal: #a879ff; --signal-deep: #7a45e0;
+    --arrived: #35d07f; --down: #ff5c5c; --rolling: #f5b740;
+    --sans: 'Inter', system-ui, sans-serif;
+    --disp: 'Space Grotesk', 'Inter', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --maxw: 980px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans); background: var(--ink); color: var(--text); line-height: 1.6;
+    background-image:
+      radial-gradient(900px 520px at 84% -6%, rgba(168, 121, 255, 0.14), transparent 60%),
+      radial-gradient(680px 400px at -4% 10%, rgba(168, 121, 255, 0.06), transparent 55%);
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 22px; }
+  a { color: var(--signal); }
+  .muted { color: var(--fog); }
+  .word { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em; }
+  code { font-family: var(--mono); background: rgba(168, 121, 255, 0.12); padding: 2px 6px;
+    border-radius: 4px; font-size: 0.9em; }
+
+  header { position: sticky; top: 0; z-index: 10; background: rgba(11, 9, 18, 0.95);
+    border-bottom: 1px solid var(--line); }
+  header .wrap { display: flex; align-items: center; gap: 10px; height: 62px; }
+  header .word { font-size: 18px; }
+  header nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  header nav a { color: var(--text); text-decoration: none; }
+  header nav a:hover { color: var(--signal); }
+
+  .hero { padding: 64px 0 40px; text-align: center; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--signal); font-weight: 500; }
+  .hero h1 { font-family: var(--disp); font-weight: 600; font-size: clamp(32px, 5.5vw, 52px);
+    line-height: 1.08; margin: 16px 0 14px; letter-spacing: -0.01em; }
+  .hero p.lead { font-size: 17px; color: var(--fog); max-width: 46ch; margin: 0 auto 28px; }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 44px; }
+  .btn { font-family: var(--sans); font-weight: 600; font-size: 14px; padding: 12px 24px;
+    border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+  .btn.primary { background: linear-gradient(135deg, var(--signal), var(--signal-deep)); color: #fff;
+    box-shadow: 0 4px 16px rgba(168, 121, 255, 0.35); }
+  .btn.ghost { background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+  .btn.ghost:hover { background: var(--line); }
+
+  .screenshot { border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
+    box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8); }
+  .screenshot img { display: block; width: 100%; height: auto; }
+
+  section { padding: 60px 0; border-top: 1px solid var(--line); }
+  .sec-h { text-align: center; margin-bottom: 32px; }
+  .sec-h h2 { font-family: var(--disp); font-weight: 600; font-size: 26px; margin-bottom: 8px; }
+  .sec-h p { color: var(--fog); font-size: 14px; }
+
+  .install-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; }
+  .install-tabs button { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 18px;
+    border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fog); cursor: pointer; }
+  .install-tabs button.active { background: var(--signal); border-color: var(--signal); color: #fff; }
+  pre { background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+    overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.7; max-width: 640px; margin: 0 auto; }
+  pre .cmt { color: var(--fog); }
+  .install-panel { display: none; }
+  .install-panel.active { display: block; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .feature .ic { font-family: var(--mono); font-size: 11px; color: var(--signal); letter-spacing: 0.1em;
+    text-transform: uppercase; margin-bottom: 10px; display: block; }
+  .feature h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .feature p { font-size: 13px; color: var(--fog); line-height: 1.6; }
+
+  .why { max-width: 680px; margin: 0 auto; text-align: center; color: var(--fog); font-size: 15px; }
+
+  footer { padding: 40px 0 60px; }
+  footer .wrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  footer .links { display: flex; gap: 18px; margin-left: auto; font-size: 13px; }
+  footer .links a { color: var(--fog); text-decoration: none; }
+  footer .links a:hover { color: var(--signal); }
+  footer .maintainer { font-size: 12.5px; color: var(--fog); }
+
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    header nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="gbody" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#A879FF"/><stop offset="1" stop-color="#8A54F0"/>
+  </linearGradient>
+  <symbol id="owlhead" viewBox="0 0 128 128">
+    <g fill="#7A45E0"><path d="M40 46 L56 48 L46 18 Z"/><path d="M88 46 L72 48 L82 18 Z"/></g>
+    <circle cx="64" cy="72" r="46" fill="url(#gbody)"/>
+    <circle cx="48" cy="70" r="27" fill="#6E3ED6"/><circle cx="80" cy="70" r="27" fill="#6E3ED6"/>
+    <circle cx="48" cy="70" r="22" fill="#fff"/><circle cx="80" cy="70" r="22" fill="#fff"/>
+    <circle cx="51" cy="72" r="11" fill="#241C3B"/><circle cx="77" cy="72" r="11" fill="#241C3B"/>
+    <circle cx="55" cy="67" r="4" fill="#fff"/><circle cx="81" cy="67" r="4" fill="#fff"/>
+    <path d="M57 88 L71 88 L64 101 Z" fill="#F5B740"/>
+  </symbol>
+</defs></svg>
+
+<header>
+  <div class="wrap">
+    <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+    <span class="word">CONVOY</span>
+    <nav>
+      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="https://github.com/YOUR_ORG_OR_USER/convoy">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero" style="border-top:0">
+    <span class="eyebrow">Self-hosted · Open source · MIT</span>
+    <h1>Every pipeline,<br>one screen, live.</h1>
+    <p class="lead">
+      Convoy is a self-hosted GitHub Actions board for your whole organization —
+      think ArgoCD, but for CI pipelines. It splits what's happening into two views:
+      production deploys, and everything else.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" href="https://github.com/YOUR_ORG_OR_USER/convoy">View on GitHub</a>
+      <a class="btn ghost" href="#install">Quick install ↓</a>
+    </div>
+    <div class="screenshot">
+      <img src="./assets/screenshot.png" alt="Convoy dashboard showing four repos: one arrived (green), one down (red), one rolling (amber), one pulled (cancelled)" loading="lazy">
+    </div>
+  </section>
+
+  <section>
+    <div class="why">
+      <p>
+        Watching a release roll out across dozens of repos usually means opening the
+        Actions tab of every repo by hand. Convoy installs a GitHub App on your org once,
+        listens for webhooks — not polling — and shows every workflow run live, split into
+        <strong style="color:var(--text)">Deploys</strong> (triggered by a release tag) and
+        <strong style="color:var(--text)">Pipelines</strong> (everything else).
+      </p>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="sec-h">
+      <h2>Install</h2>
+      <p>Self-hosted only — your CI data never leaves your own infrastructure.</p>
+    </div>
+    <div class="install-tabs">
+      <button class="active" data-panel="helm" onclick="showInstall('helm')">Kubernetes (Helm)</button>
+      <button data-panel="docker" onclick="showInstall('docker')">Docker</button>
+    </div>
+    <div class="install-panel active" id="panel-helm">
+      <pre><span class="cmt"># see the README for GitHub App setup first</span>
+helm install convoy ./helm/convoy \
+  --set-file github.privateKey=./private-key.pem \
+  --set github.appId=&lt;APP_ID&gt; \
+  --set github.webhookSecret=&lt;WEBHOOK_SECRET&gt; \
+  --set ingress.host=convoy.your-internal-domain.com</pre>
+    </div>
+    <div class="install-panel" id="panel-docker">
+      <pre><span class="cmt"># see the README for GitHub App setup first</span>
+docker run -p 3000:3000 \
+  -e APP_ID=... \
+  -e WEBHOOK_SECRET=... \
+  -e PRIVATE_KEY_PATH=/app/private-key.pem \
+  -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
+  ghcr.io/YOUR_ORG_OR_USER/convoy:latest</pre>
+    </div>
+    <p style="text-align:center; margin-top:18px; font-size:13px;" class="muted">
+      Just want to see it first? <code style="font-family:var(--mono)">npm run demo</code> runs Convoy
+      with fake data — no GitHub App needed.
+    </p>
+  </section>
+
+  <section id="features">
+    <div class="sec-h">
+      <h2>How it's built</h2>
+      <p>Every decision here traded convenience for something a serious infra team would actually trust.</p>
+    </div>
+    <div class="grid">
+      <div class="feature">
+        <span class="ic">Delivery</span>
+        <h3>Webhooks, not polling</h3>
+        <p>A GitHub App receives <code>workflow_run</code>/<code>workflow_job</code> events directly. Polling only runs as a slow safety net for missed deliveries — it scales to hundreds of repos without hammering the API.</p>
+      </div>
+      <div class="feature">
+        <span class="ic">Trust</span>
+        <h3>Minimal permissions</h3>
+        <p>The GitHub App requests <code>actions: read</code> and <code>metadata: read</code> — nothing else. It can't read file contents, can't write anything, can't touch your workflows.</p>
+      </div>
+      <div class="feature">
+        <span class="ic">Data</span>
+        <h3>Self-hosted, always</h3>
+        <p>Ships as a Docker image and a Helm chart. There is no Convoy-operated backend — your CI data never leaves your own cluster.</p>
+      </div>
+      <div class="feature">
+        <span class="ic">Classify</span>
+        <h3>Deploy vs. pipeline</h3>
+        <p>A run is a deploy if it's triggered by a release or a version-shaped tag. Everything else is a pipeline. Per-repo overrides handle the exceptions.</p>
+      </div>
+      <div class="feature">
+        <span class="ic">Access</span>
+        <h3>Bring your own auth</h3>
+        <p>No "Login with GitHub" to build or trust. Gate the dashboard with your existing SSO/VPN/ingress, or a simple shared API key.</p>
+      </div>
+      <div class="feature">
+        <span class="ic">License</span>
+        <h3>MIT, free, forever</h3>
+        <p>No paid tier, no telemetry phoning home, no vendor lock-in. Fork it, run it, change it.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <svg width="20" height="20" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+    <span class="word" style="font-size:13px">CONVOY</span>
+    <span class="maintainer">— built &amp; maintained by <a href="https://www.linkedin.com/in/juanignaciodev/" target="_blank" rel="noopener">Juan Ignacio</a></span>
+    <div class="links">
+      <a href="https://github.com/YOUR_ORG_OR_USER/convoy">GitHub</a>
+      <a href="https://github.com/YOUR_ORG_OR_USER/convoy/blob/main/LICENSE">MIT License</a>
+      <a href="https://www.linkedin.com/in/juanignaciodev/" target="_blank" rel="noopener">LinkedIn</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+function showInstall(which) {
+  document.querySelectorAll('.install-tabs button').forEach(b => b.classList.toggle('active', b.dataset.panel === which));
+  document.querySelectorAll('.install-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + which));
+}
+</script>
+</body>
+</html>

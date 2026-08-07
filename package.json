@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "probot run ./lib/index.js",
     "start": "probot run ./lib/index.js",
+    "demo": "npm run build && node lib/demo.js",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "format": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "vitest run",

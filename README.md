@@ -13,6 +13,22 @@ workflow runs on one screen, split into two views:
 Updates arrive via GitHub webhooks, not polling, so it scales to an org with
 hundreds of repositories without hammering the GitHub API.
 
+![Convoy dashboard](docs/assets/screenshot.png)
+
+## Try it without a GitHub App
+
+Want to see it before setting anything up?
+
+```bash
+npm install
+npm run demo
+```
+
+This runs Convoy against seeded fake data (no GitHub App, no webhooks, no
+network calls) at `http://localhost:3000` — the exact same frontend and API
+the real thing uses, just fed made-up repos instead of your org's. Good for
+a first look, or for generating screenshots.
+
 ## Why
 
 Watching a release roll out across dozens of repos usually means opening the
@@ -149,3 +165,8 @@ now; see open issues for what's planned.
 ## License
 
 MIT — see `LICENSE`.
+
+## Maintainer
+
+Built and maintained by [Juan Ignacio](https://www.linkedin.com/in/juanignaciodev/).
+Issues and PRs welcome — see `CONTRIBUTING.md`.
