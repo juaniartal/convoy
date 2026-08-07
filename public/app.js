@@ -25,7 +25,14 @@ let lastRuns = [];
 let lastError = null;
 let lastFetchedAt = null;
 const expandedRepos = new Set();
+const fullyExpandedRepos = new Set(); // repos where "show N more pipelines" was clicked
 const prevBuckets = new Map(); // run id -> bucket, to flash on change across polls
+
+// A repo with many concurrent branches (qa/sandbox/feature-*/...) can easily
+// have a dozen live pipelines at once — rendering all of them by default
+// turns one expanded row into a wall of cards. Show the most recent few and
+// let "show N more" reveal the rest, instead of hiding them outright.
+const PIPELINE_PREVIEW_LIMIT = 4;
 
 // --- Status vocabulary (mirrors the backend's stateOf/classify semantics) ---
 
@@ -135,8 +142,17 @@ function onToggleShowAllDeploys() {
 }
 
 function toggleExpand(repo) {
-  if (expandedRepos.has(repo)) expandedRepos.delete(repo);
-  else expandedRepos.add(repo);
+  if (expandedRepos.has(repo)) {
+    expandedRepos.delete(repo);
+    fullyExpandedRepos.delete(repo);
+  } else {
+    expandedRepos.add(repo);
+  }
+  render();
+}
+
+function showAllPipelinesFor(repo) {
+  fullyExpandedRepos.add(repo);
   render();
 }
 
@@ -315,7 +331,18 @@ function repoRowHtml(group) {
     })
     .join('');
 
-  const detail = expanded ? `<div class="repo-detail">${pipelines.map(pipelineHtml).join('')}</div>` : '';
+  // pipelines is already sorted most-recently-updated first, so the preview
+  // is the N most current pipelines, not an arbitrary slice.
+  const showAll = fullyExpandedRepos.has(repo);
+  const visiblePipelines = showAll ? pipelines : pipelines.slice(0, PIPELINE_PREVIEW_LIMIT);
+  const hiddenCount = pipelines.length - visiblePipelines.length;
+  const showMore = hiddenCount > 0
+    ? `<button class="ghost show-more" onclick="event.stopPropagation(); showAllPipelinesFor('${repo}')">Show ${hiddenCount} more pipeline${hiddenCount === 1 ? '' : 's'}</button>`
+    : '';
+
+  const detail = expanded
+    ? `<div class="repo-detail">${visiblePipelines.map(pipelineHtml).join('')}${showMore}</div>`
+    : '';
 
   return `
     <div class="repo-row ${stale ? 'stale' : ''} ${expanded ? 'expanded' : ''}">
