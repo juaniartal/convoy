@@ -19,6 +19,9 @@ writes the resulting App ID / private key / webhook secret into `.env` for
 you. It also needs a way to receive webhooks on your machine — Probot
 defaults to a [smee.io](https://smee.io) relay for this; see the README for
 alternatives if you'd rather not use a third-party relay even for local dev.
+If `npm run dev` crashes with `SmeeClient is not a constructor`, see the
+README's troubleshooting note under "Create the GitHub App" — it's a known
+Probot/Node incompatibility with a manual workaround, not a Convoy bug.
 
 ## Before opening a PR
 
@@ -40,6 +43,12 @@ All four must pass — CI runs the same checks and will block merge otherwise.
   unit test in `test/classify.test.ts` using a plain fixture — no live
   GitHub App required to test this logic.
 - `src/handlers/` — thin Probot webhook handlers that call into `core/`.
+- `src/index.ts` is the Probot `ApplicationFunction` (webhook wiring + reconciliation
+  loop). `src/start.ts` is the actual entry point (`npm start`/`npm run dev` run
+  it, not `index.ts` directly) — it calls Probot's `run()` programmatically
+  instead of via the `probot run` CLI, which otherwise registers a built-in
+  default app that hijacks `GET /` with a redirect before our own dashboard
+  ever gets a chance to serve it.
 - `src/api/` — the internal HTTP API the frontend polls.
 - `public/` — the frontend. Plain HTML/CSS/JS, no build step, no framework.
   Please keep it that way — a two-tab dashboard with search and polling

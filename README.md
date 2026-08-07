@@ -115,6 +115,31 @@ or use an alternative tunnel (ngrok, cloudflared) and set `WEBHOOK_PROXY_URL`
 accordingly. In production, none of this applies — GitHub delivers webhooks
 directly to your deployed ingress URL.
 
+#### If `npm run dev` crashes with `SmeeClient is not a constructor`
+
+This is a known incompatibility between Probot 14's built-in webhook-proxy
+(which dynamically fetches `smee-client@5.0.0` via `npx` at runtime) and
+Node 20/24 — confirmed independently of network/proxy issues (a plain
+`npx smee-client@5.0.0` works fine; only Probot's internal dynamic import of
+it breaks). Work around it by setting up the App and tunnel manually instead
+of relying on the automatic manifest flow:
+
+1. Create the App by hand at <https://github.com/settings/apps/new> —
+   webhook URL is a smee.io channel (get one by visiting
+   `https://smee.io/new` in your browser first), events: `Workflow run` +
+   `Workflow job`, permissions: `Actions: read`, `Metadata: read`.
+2. Generate a private key on the App's settings page, save it as
+   `private-key.pem` in this folder.
+3. Fill `.env` by hand with the App ID, webhook secret, and
+   `PRIVATE_KEY_PATH=./private-key.pem`. Leave `WEBHOOK_PROXY_URL` **empty**
+   — setting it at all triggers the crash, even outside setup mode.
+4. Run Convoy (`npm run dev`) in one terminal, and the smee relay
+   independently in another:
+   ```bash
+   npx smee-client@5.0.0 -u https://smee.io/<your-channel> -t http://localhost:3000/api/github/webhooks
+   ```
+5. Install the App on a couple of test repos and open `http://localhost:3000`.
+
 ### 2. Run it
 
 **Docker:**
