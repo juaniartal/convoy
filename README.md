@@ -139,6 +139,12 @@ helm install convoy ./helm/convoy \
 
 See `helm/convoy/values.yaml` for the full set of configurable values.
 
+Already manage credentials through External Secrets Operator, Vault, or a
+cloud secret manager instead of plain `--set`/`--set-file`? Set
+`secret.create=false` and point Convoy at a Secret you provide yourself —
+see `helm/convoy/examples/` for an Azure Key Vault example (the same shape
+works for AWS/GCP/Vault).
+
 ### 3. Point GitHub at it
 
 In your GitHub App settings, set the webhook URL to your deployed instance's

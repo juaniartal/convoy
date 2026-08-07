@@ -51,6 +51,9 @@ input.search {
   font-weight: 400; font-family: var(--mono); min-width: 220px;
 }
 input.search::placeholder { color: var(--fog); }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500;
+  color: var(--fog); cursor: pointer; padding: 0; }
+.toggle input { padding: 0; width: 14px; height: 14px; cursor: pointer; }
 
 /* Progress bar */
 .progress-track { height: 8px; border-radius: 5px; overflow: hidden; display: flex;
@@ -98,6 +101,11 @@ input.search::placeholder { color: var(--fog); }
 .run.rolling { border-left-color: var(--rolling); }
 .run.staged { border-left-color: var(--staged); opacity: 0.9; }
 .run.pulled { border-left-color: var(--pulled); opacity: 0.85; }
+/* Not hidden — a quiet repo still belongs on the board with its last known
+   state. Just visually recedes so it doesn't compete with active ones. */
+.run.stale { opacity: 0.45; }
+.run.stale:hover { opacity: 0.8; }
+.run-updated { font-family: var(--mono); font-size: 10px; color: var(--fog); margin-top: 8px; }
 
 .run.flash-arrived { animation: flashArrived 1.4s ease-out; }
 .run.flash-down { animation: flashDown 1.4s ease-out; }

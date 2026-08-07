@@ -1,10 +1,16 @@
 // --- Config ---
 const POLL_MS = 5000; // polling our own backend, not GitHub — no rate limit concern here
+// Cards older than this get a muted look and sink to the bottom on sort —
+// never hidden outright. A repo that's gone quiet still belongs on the
+// board with its last known state; disappearing entirely reads as "broken",
+// not "idle." See README/CONTRIBUTING for the reasoning.
+const STALE_AFTER_HOURS = 48;
 
 // --- State ---
 let currentTab = 'deploys';
 let currentFilter = 'all';
 let searchQuery = '';
+let hideInactive = false;
 let lastRuns = [];
 let lastError = null;
 let lastFetchedAt = null;
@@ -23,7 +29,14 @@ function stateOf(run) {
   return 'queued';
 }
 
-const ICON = { success: '✓', failure: '✕', running: '●', queued: '○', skipped: '–', cancelled: '–' };
+const ICON = {
+  success: '✓',
+  failure: '✕',
+  running: '●',
+  queued: '○',
+  skipped: '–',
+  cancelled: '–',
+};
 const BADGE_LABEL = {
   success: 'Arrived',
   failure: 'Down',
@@ -36,18 +49,28 @@ const BADGE_LABEL = {
 // Card border/badge color bucket — skipped and cancelled share the same
 // "pulled" visual treatment (neither is a real failure).
 function styleBucket(label) {
-  return { success: 'arrived', failure: 'down', running: 'rolling', queued: 'staged', skipped: 'pulled', cancelled: 'pulled' }[
-    label
-  ];
+  return {
+    success: 'arrived',
+    failure: 'down',
+    running: 'rolling',
+    queued: 'staged',
+    skipped: 'pulled',
+    cancelled: 'pulled',
+  }[label];
 }
 
 // Top-line counts fold cancelled into "down" (it still needs a human look)
 // and skipped into "staged" (it's a resolved-but-uninteresting state), to
 // keep the summary bar at four numbers.
 function countBucket(label) {
-  return { success: 'arrived', failure: 'down', cancelled: 'down', running: 'rolling', queued: 'staged', skipped: 'staged' }[
-    label
-  ];
+  return {
+    success: 'arrived',
+    failure: 'down',
+    cancelled: 'down',
+    running: 'rolling',
+    queued: 'staged',
+    skipped: 'staged',
+  }[label];
 }
 
 function fmtDur(a, b) {
@@ -58,12 +81,27 @@ function fmtDur(a, b) {
   return secs < 60 ? secs + 's' : Math.floor(secs / 60) + 'm' + (secs % 60) + 's';
 }
 
+function fmtAgo(iso) {
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + 'h ago';
+  return Math.floor(hours / 24) + 'd ago';
+}
+
+function isStale(run) {
+  return Date.now() - new Date(run.updatedAt).getTime() > STALE_AFTER_HOURS * 3600_000;
+}
+
 // --- Fetch ---
 
 async function fetchState() {
   try {
     const params = new URLSearchParams({ view: currentTab });
     if (searchQuery) params.set('q', searchQuery);
+    if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
     const res = await fetch(`/api/state?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -78,7 +116,9 @@ async function fetchState() {
 
 function setTab(tab) {
   currentTab = tab;
-  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
+  document
+    .querySelectorAll('.tab')
+    .forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
   prevBuckets.clear();
   fetchState();
 }
@@ -90,6 +130,11 @@ function setFilter(f) {
 
 function onSearchInput(value) {
   searchQuery = value;
+  fetchState();
+}
+
+function onToggleHideInactive(checked) {
+  hideInactive = checked;
   fetchState();
 }
 
@@ -139,7 +184,9 @@ function renderSummary() {
       <span class="muted" id="updatedText">${updatedText}</span>
       ${lastError ? `<span class="muted">(${lastError})</span>` : ''}
       <div class="ctrl-actions">
-        <input class="search" type="search" placeholder="Search repos…" value="${escapeAttr(searchQuery)}"
+        <label class="toggle"><input type="checkbox" ${hideInactive ? 'checked' : ''}
+          onchange="onToggleHideInactive(this.checked)"> Hide inactive (48h+)</label>
+        <input class="search" type="search" placeholder="Search repo or tag…" value="${escapeAttr(searchQuery)}"
           oninput="onSearchInput(this.value)">
       </div>
     </div>
@@ -154,8 +201,13 @@ function renderProgress() {
     track.innerHTML = '';
     return;
   }
-  const seg = (n, cls) => (n ? `<div class="progress-seg ${cls}" style="width:${(n / c.total) * 100}%"></div>` : '');
-  track.innerHTML = seg(c.arrived, 'arrived') + seg(c.down, 'down') + seg(c.rolling, 'rolling') + seg(c.staged, 'staged');
+  const seg = (n, cls) =>
+    n ? `<div class="progress-seg ${cls}" style="width:${(n / c.total) * 100}%"></div>` : '';
+  track.innerHTML =
+    seg(c.arrived, 'arrived') +
+    seg(c.down, 'down') +
+    seg(c.rolling, 'rolling') +
+    seg(c.staged, 'staged');
 }
 
 function cardHtml(run) {
@@ -164,6 +216,7 @@ function cardHtml(run) {
   const prevBucket = prevBuckets.get(run.id);
   const flashClass = prevBucket && prevBucket !== bucket ? `flash-${bucket}` : '';
   prevBuckets.set(run.id, bucket);
+  const staleClass = isStale(run) ? 'stale' : '';
 
   const jobs = (run.jobs || [])
     .map((j) => {
@@ -189,7 +242,7 @@ function cardHtml(run) {
   const actorLine = run.actor ? `<div class="run-actor">by ${run.actor}</div>` : '';
 
   return `
-    <div class="run ${bucket} ${flashClass}">
+    <div class="run ${bucket} ${staleClass} ${flashClass}">
       <div class="run-head">
         <div>
           <div class="run-repo">${run.repo}</div>
@@ -203,12 +256,15 @@ function cardHtml(run) {
       </div>
       <div class="jobs">${jobs || '<span class="msg">no job detail yet</span>'}</div>
       ${jobsTotal ? `<div class="job-progress">${jobsDone}/${jobsTotal} jobs</div>` : ''}
+      <div class="run-updated">updated ${fmtAgo(run.updatedAt)}</div>
     </div>`;
 }
 
 function renderGrid() {
   const grid = document.getElementById('grid');
-  const runs = lastRuns.filter((r) => currentFilter === 'all' || countBucket(stateOf(r)) === currentFilter);
+  const runs = lastRuns.filter(
+    (r) => currentFilter === 'all' || countBucket(stateOf(r)) === currentFilter,
+  );
 
   grid.innerHTML =
     runs.map(cardHtml).join('') ||

@@ -19,7 +19,14 @@ export type RunUpsertInput = Omit<RunState, 'jobs'>;
 export interface StateFilter {
   view?: 'deploys' | 'pipelines' | 'all';
   repo?: string;
+  /** Matches against repo name OR the run's ref (branch/tag) — typing a
+   * release tag during a deploy narrows the board to just that release,
+   * the same way the personal single-file tool did with a pasted list. */
   q?: string;
+  /** Drop runs whose last update is older than this many hours. A repo that
+   * hasn't run anything recently should age out of the board on its own
+   * rather than sit there forever as stale noise. */
+  maxAgeHours?: number;
 }
 
 /**
@@ -120,22 +127,48 @@ export class StateStore {
   getSnapshot(filter: StateFilter = {}): StateSnapshot {
     const view = filter.view ?? 'all';
     const q = filter.q?.toLowerCase().trim();
+    const cutoff = filter.maxAgeHours != null ? Date.now() - filter.maxAgeHours * 3_600_000 : null;
 
-    const runs: RunSnapshot[] = [];
+    let runs: RunSnapshot[] = [];
     for (const repo of this.repos.values()) {
       if (filter.repo && repo.fullName !== filter.repo) continue;
-      if (q && !repo.fullName.toLowerCase().includes(q)) continue;
 
       for (const run of repo.runs.values()) {
         if (view === 'deploys' && run.category !== 'deploy') continue;
         if (view === 'pipelines' && run.category !== 'pipeline') continue;
+        if (cutoff != null && new Date(run.updatedAt).getTime() < cutoff) continue;
+        if (q) {
+          const matchesRepo = repo.fullName.toLowerCase().includes(q);
+          const matchesRef = (run.headBranch ?? '').toLowerCase().includes(q);
+          if (!matchesRepo && !matchesRef) continue;
+        }
         const { jobs, ...rest } = run;
         runs.push({ ...rest, repo: repo.fullName, jobs: [...jobs.values()] });
       }
     }
 
+    runs = dedupeByLatestPerWorkflow(runs);
     runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
     return { generatedAt: new Date().toISOString(), repoCount: this.repos.size, runs };
   }
+}
+
+/**
+ * A board shows current state, not history — a repo re-running the same
+ * workflow five times in an hour (e.g. a busy qa branch merging repeatedly)
+ * should occupy one card, not five. Grouped by repo+workflow+category so two
+ * genuinely different workflows on the same repo (e.g. "CI" and "Deploy")
+ * still both get shown.
+ */
+function dedupeByLatestPerWorkflow(runs: RunSnapshot[]): RunSnapshot[] {
+  const latest = new Map<string, RunSnapshot>();
+  for (const run of runs) {
+    const key = `${run.repo}::${run.workflowName}::${run.category}`;
+    const existing = latest.get(key);
+    if (!existing || run.updatedAt > existing.updatedAt) {
+      latest.set(key, run);
+    }
+  }
+  return [...latest.values()];
 }

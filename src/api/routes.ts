@@ -28,7 +28,15 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
     const view = parseView(req.query.view);
     const repo = typeof req.query.repo === 'string' ? req.query.repo : undefined;
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
-    res.json(state.getSnapshot({ view, repo, q }));
+    // maxAgeHours is opt-in, not a default — a repo that's gone quiet still
+    // belongs on the board with its last known state. Only filter it out
+    // when the frontend's "hide inactive" toggle explicitly asks for it.
+    const maxAgeHoursRaw = req.query.maxAgeHours;
+    const maxAgeHours =
+      typeof maxAgeHoursRaw === 'string' && Number.isFinite(Number(maxAgeHoursRaw))
+        ? Number(maxAgeHoursRaw)
+        : undefined;
+    res.json(state.getSnapshot({ view, repo, q, maxAgeHours }));
   });
 
   app.get('/api/repos', (_req, res) => {

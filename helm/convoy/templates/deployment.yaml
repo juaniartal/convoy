@@ -31,7 +31,7 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
           envFrom:
             - secretRef:
-                name: {{ include "convoy.fullname" . }}
+                name: {{ include "convoy.secretName" . }}
           {{- if .Values.convoyConfig }}
           env:
             - name: CONVOY_CONFIG_PATH

@@ -84,9 +84,15 @@ describe('StateStore', () => {
   it('evicts the oldest runs once a repo exceeds the cap', () => {
     const store = new StateStore();
     for (let i = 1; i <= 25; i++) {
+      // Distinct workflow names so eviction (a storage concern) is being
+      // tested independently of the display-time dedup-by-workflow below.
       store.upsertRun(
         'org/repo',
-        makeRun({ id: i, updatedAt: new Date(2026, 0, i).toISOString() }),
+        makeRun({
+          id: i,
+          workflowName: `Workflow ${i}`,
+          updatedAt: new Date(2026, 0, i).toISOString(),
+        }),
       );
     }
     const snapshot = store.getSnapshot();
@@ -94,6 +100,66 @@ describe('StateStore', () => {
     // Oldest (id 1..5) should have been evicted; newest (id 25) survives.
     expect(snapshot.runs.some((r) => r.id === 25)).toBe(true);
     expect(snapshot.runs.some((r) => r.id === 1)).toBe(false);
+  });
+
+  it('collapses repeated runs of the same workflow down to just the latest', () => {
+    // e.g. several merges into qa firing the same CI workflow back to back —
+    // the board should show one card, not one per run.
+    const store = new StateStore();
+    store.upsertRun(
+      'org/repo',
+      makeRun({
+        id: 1,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        status: 'completed',
+        conclusion: 'failure',
+      }),
+    );
+    store.upsertRun(
+      'org/repo',
+      makeRun({
+        id: 2,
+        updatedAt: '2026-01-01T00:05:00.000Z',
+        status: 'completed',
+        conclusion: 'failure',
+      }),
+    );
+    store.upsertRun(
+      'org/repo',
+      makeRun({
+        id: 3,
+        updatedAt: '2026-01-01T00:10:00.000Z',
+        status: 'completed',
+        conclusion: 'success',
+      }),
+    );
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot.runs).toHaveLength(1);
+    expect(snapshot.runs[0].id).toBe(3);
+    expect(snapshot.runs[0].conclusion).toBe('success');
+  });
+
+  it('keeps two distinct workflows on the same repo as separate cards', () => {
+    const store = new StateStore();
+    store.upsertRun('org/repo', makeRun({ id: 1, workflowName: 'CI' }));
+    store.upsertRun('org/repo', makeRun({ id: 2, workflowName: 'Deploy' }));
+    expect(store.getSnapshot().runs).toHaveLength(2);
+  });
+
+  it('excludes runs older than maxAgeHours only when explicitly asked', () => {
+    const store = new StateStore();
+    const old = new Date(Date.now() - 72 * 3600_000).toISOString();
+    const recent = new Date().toISOString();
+    store.upsertRun('org/quiet', makeRun({ id: 1, workflowName: 'CI', updatedAt: old }));
+    store.upsertRun('org/active', makeRun({ id: 2, workflowName: 'CI', updatedAt: recent }));
+
+    // Default: nothing is hidden — a quiet repo still shows its last known state.
+    expect(store.getSnapshot().runs).toHaveLength(2);
+
+    // Opt-in filtering (the frontend's "hide inactive" toggle) drops it.
+    const filtered = store.getSnapshot({ maxAgeHours: 48 });
+    expect(filtered.runs.map((r) => r.repo)).toEqual(['org/active']);
   });
 
   it('filters snapshots by view, repo, and search query', () => {
@@ -113,10 +179,32 @@ describe('StateStore', () => {
     expect(store.getSnapshot({ q: 'wor' }).runs.map((r) => r.id)).toEqual([3]);
   });
 
+  it('matches the search query against the ref/tag too, not just repo name', () => {
+    // Lets someone scope the board down to one release the way the old
+    // paste-a-list tool did, just by typing the tag instead of a repo name.
+    const store = new StateStore();
+    store.upsertRun('org/api', makeRun({ id: 1, headBranch: 'v3.4.0' }));
+    store.upsertRun('org/worker', makeRun({ id: 2, headBranch: 'v3.4.0' }));
+    store.upsertRun('org/other', makeRun({ id: 3, headBranch: 'main' }));
+
+    expect(
+      store
+        .getSnapshot({ q: 'v3.4.0' })
+        .runs.map((r) => r.id)
+        .sort(),
+    ).toEqual([1, 2]);
+  });
+
   it('sorts snapshot runs by most recently updated first', () => {
     const store = new StateStore();
-    store.upsertRun('org/repo', makeRun({ id: 1, updatedAt: '2026-01-01T00:00:00.000Z' }));
-    store.upsertRun('org/repo', makeRun({ id: 2, updatedAt: '2026-01-02T00:00:00.000Z' }));
+    store.upsertRun(
+      'org/repo',
+      makeRun({ id: 1, workflowName: 'CI', updatedAt: '2026-01-01T00:00:00.000Z' }),
+    );
+    store.upsertRun(
+      'org/repo',
+      makeRun({ id: 2, workflowName: 'Deploy', updatedAt: '2026-01-02T00:00:00.000Z' }),
+    );
     expect(store.getSnapshot().runs.map((r) => r.id)).toEqual([2, 1]);
   });
 });

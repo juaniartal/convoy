@@ -23,6 +23,21 @@ github:
 # Leave empty if your ingress/SSO already restricts who can reach this.
 apiKey: ''
 
+secret:
+  # true (default): this chart creates the Secret from github.* / apiKey
+  # above — the simplest path for a plain `helm install`.
+  #
+  # false: skip creating it. Use this if you manage the Secret yourself —
+  # e.g. an External Secrets Operator ExternalSecret pulling from Azure Key
+  # Vault / AWS Secrets Manager / Vault — as many GitOps setups already do
+  # for every other credential. See helm/convoy/examples/ for a sample
+  # ExternalSecret. Whichever way it's created, it must be named
+  # secret.name (or the chart's fullname if left blank) and contain the same
+  # keys this chart's own Secret would: APP_ID, PRIVATE_KEY, WEBHOOK_SECRET,
+  # and CONVOY_API_KEY if used.
+  create: true
+  name: ''
+
 # Inline contents of convoy.yaml (classification overrides / exclude list).
 # Optional — Convoy works with sensible defaults if left empty.
 convoyConfig: ''
