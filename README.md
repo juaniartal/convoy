@@ -35,6 +35,11 @@ cp .env.example .env
 npm run dev
 ```
 
+`.env.example` is a template with no real secrets in it; `cp` just creates
+your own local `.env` from it (already gitignored, so your credentials never
+get committed). You don't need to fill it in by hand — the next step does
+that for you.
+
 The first run walks you through creating a GitHub App in your browser and
 installing it on whichever repos you want Convoy to watch. That's it —
 `http://localhost:3000` now shows their real pipelines, live.
