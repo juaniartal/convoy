@@ -120,10 +120,11 @@ something in front of it:
    normal way most internal tools are gated. Convoy doesn't need to know who
    you are; it just needs to not be reachable by people who shouldn't see it.
 2. **Set `CONVOY_API_KEY`** — a simple shared-secret gate if you don't have
-   (1) available yet. Every request must include
-   `Authorization: Bearer <key>`, which a plain browser tab won't send on
-   its own — this suits API/script access more than daily browsing.
-3. **No SSO/VPN handy, but still want an actual login screen?** A free
+   (1) available yet. Accepts either `Authorization: Bearer <key>` (for
+   scripts/reverse proxies) or HTTP Basic Auth with the key as the password
+   and any username — a plain browser tab gets a real native login prompt,
+   no separate login page for Convoy to build.
+3. **Want per-person login instead of one shared password?** A free
    tunnel with built-in auth (e.g. Cloudflare Tunnel + Cloudflare Access)
    can require you to sign in with Google/GitHub before traffic ever
    reaches Convoy — without Convoy having to implement anything itself.
@@ -234,7 +235,7 @@ In your GitHub App settings, set the webhook URL to your deployed instance's
 | `PRIVATE_KEY_PATH` or `PRIVATE_KEY` | yes (one of the two) | Path to the App's private key `.pem`, or its raw contents (what the Helm chart uses, via a Secret) |
 | `WEBHOOK_SECRET` | yes | GitHub App webhook secret |
 | `PORT` | no (default `3000`) | HTTP port |
-| `CONVOY_API_KEY` | no | If set, gates all requests behind a bearer token |
+| `CONVOY_API_KEY` | no | If set, gates all requests behind a Bearer token or Basic Auth (any username, this as the password) |
 | `CONVOY_CONFIG_PATH` | no (default `./convoy.yaml`) | Path to classification overrides |
 
 ## Status

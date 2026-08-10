@@ -17,7 +17,7 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
   const app = express();
 
   if (options.apiKey) {
-    app.use(requireBearerToken(options.apiKey));
+    app.use(requireAuth(options.apiKey));
   }
 
   app.get('/api/healthz', (_req, res) => {
@@ -58,14 +58,35 @@ function parseView(raw: unknown): 'deploys' | 'pipelines' | 'all' | undefined {
   return raw === 'deploys' || raw === 'pipelines' || raw === 'all' ? raw : undefined;
 }
 
-function requireBearerToken(apiKey: string) {
+/**
+ * Accepts either scheme against the same shared secret:
+ *  - Bearer <apiKey>, for scripts and reverse proxies (unchanged from before)
+ *  - Basic <base64(anything:apiKey)>, so a plain browser tab gets a real,
+ *    native login prompt (via WWW-Authenticate below) instead of a silent
+ *    401 that only a script could ever get past. Convoy still doesn't have
+ *    to build or maintain any login UI of its own.
+ */
+function requireAuth(apiKey: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const header = req.header('authorization') ?? '';
-    const [scheme, token] = header.split(' ');
-    if (scheme === 'Bearer' && token === apiKey) {
+    if (isAuthorized(req, apiKey)) {
       next();
       return;
     }
+    res.set('WWW-Authenticate', 'Basic realm="Convoy"');
     res.status(401).json({ error: 'unauthorized' });
   };
+}
+
+function isAuthorized(req: Request, apiKey: string): boolean {
+  const header = req.header('authorization') ?? '';
+  const [scheme, credentials] = header.split(' ');
+  if (scheme === 'Bearer') return credentials === apiKey;
+  if (scheme === 'Basic' && credentials) {
+    const decoded = Buffer.from(credentials, 'base64').toString('utf8');
+    // Basic Auth is "username:password" — the username is ignored on
+    // purpose, there's only one shared secret, not per-user accounts.
+    const password = decoded.slice(decoded.indexOf(':') + 1);
+    return password === apiKey;
+  }
+  return false;
 }
