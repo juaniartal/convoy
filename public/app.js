@@ -33,6 +33,8 @@ let installedRepos = []; // every repo the GitHub App is installed on, regardles
 let lastError = null;
 let lastFetchedAt = null;
 let selectedRepo = repoFromHash(); // null = grid view; otherwise a repo full name
+let favoritesOnly = false;
+const favorites = new Set(JSON.parse(localStorage.getItem('convoy-favorites') || '[]'));
 const prevBuckets = new Map(); // run id -> bucket, to flash a pipeline card on change
 const prevRepoOverall = new Map(); // repo -> overall bucket, to flash a repo card on change
 
@@ -131,6 +133,45 @@ window.addEventListener('hashchange', () => {
   render();
 });
 
+// --- Theme: the inline script in <head> already set data-theme before
+// first paint (to avoid a flash); this just keeps the toggle button's
+// label in sync and persists explicit choices. ---
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('convoy-theme', theme);
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.innerHTML = theme === 'dark' ? '<span>☀ Light mode</span>' : '<span>🌙 Dark mode</span>';
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+}
+
+// --- Favorites: which repos you personally care about most, kept in this
+// browser only (not shared with anyone else hitting the same instance). ---
+
+function toggleFavorite(repo) {
+  if (favorites.has(repo)) favorites.delete(repo);
+  else favorites.add(repo);
+  localStorage.setItem('convoy-favorites', JSON.stringify([...favorites]));
+  render();
+}
+
+function onToggleFavoritesOnly() {
+  favoritesOnly = !favoritesOnly;
+  render();
+}
+
+function starHtml(repo) {
+  const fav = favorites.has(repo);
+  return `<button class="star-btn ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite('${repo}')" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>`;
+}
+
 // --- Fetch ---
 
 async function fetchState() {
@@ -161,6 +202,12 @@ function setTab(tab) {
 
 function setFilter(f) {
   currentFilter = f;
+  // Picking a filter always means "show me the board", so drop out of a
+  // single-repo detail page if one was open.
+  if (selectedRepo) {
+    selectedRepo = null;
+    history.pushState('', document.title, window.location.pathname + window.location.search);
+  }
   render();
 }
 
@@ -215,7 +262,12 @@ function groupByRepo(runs, repos) {
     const stale = pipelines.length > 0 && pipelines.every(isStale);
     return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
   });
-  groups.sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
+  // Favorites float to the top regardless of activity -- that's the point
+  // of marking them, so they don't get buried under noisier repos.
+  groups.sort((a, b) => {
+    const favDiff = Number(favorites.has(b.repo)) - Number(favorites.has(a.repo));
+    return favDiff !== 0 ? favDiff : b.latestUpdatedAt.localeCompare(a.latestUpdatedAt);
+  });
   return groups;
 }
 
@@ -240,12 +292,36 @@ function render() {
   const allGroups = groupByRepo(currentRuns(), installedRepos);
   renderSummary(allGroups);
   renderProgress(allGroups);
+  renderSidebarFilters(allGroups);
   if (selectedRepo) {
     renderDetail(allGroups.find((g) => g.repo === selectedRepo));
   } else {
-    const visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
+    let visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
+    if (favoritesOnly) visibleGroups = visibleGroups.filter((g) => favorites.has(g.repo));
     renderGrid(visibleGroups);
   }
+}
+
+function renderSidebarFilters(groups) {
+  const c = countRepoBuckets(groups);
+  const el = document.getElementById('sidebarFilters');
+  if (el) {
+    el.innerHTML = [
+      ['all', 'All', c.total],
+      ['down', 'Down', c.down],
+      ['rolling', 'Rolling', c.rolling],
+      ['staged', 'Staged', c.staged],
+    ]
+      .map(
+        ([f, label, count]) =>
+          `<button class="sidebar-filter ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">
+            <span>${label}</span><span class="count">${count}</span>
+          </button>`,
+      )
+      .join('');
+  }
+  const favBtn = document.getElementById('favToggle');
+  if (favBtn) favBtn.classList.toggle('active', favoritesOnly);
 }
 
 function renderSummary(groups) {
@@ -268,22 +344,6 @@ function renderSummary(groups) {
     currentTab === 'deploys'
       ? `${c.total} repos · ${showAllDeploys ? 'all deploys' : 'current release'}`
       : `${c.total} repos`;
-
-  // Filters act on which repo cards show in the grid — meaningless while
-  // looking at a single repo's detail page, so hide them there.
-  const filters = selectedRepo
-    ? ''
-    : `<div class="filter-row">${[
-        ['all', 'All'],
-        ['down', 'Down'],
-        ['rolling', 'Rolling'],
-        ['staged', 'Staged'],
-      ]
-        .map(
-          ([f, label]) =>
-            `<button class="ghost ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">${label}</button>`,
-        )
-        .join('')}</div>`;
 
   const deployToggle =
     currentTab === 'deploys'
@@ -308,7 +368,6 @@ function renderSummary(groups) {
           oninput="onSearchInput(this.value)">
       </div>
     </div>
-    ${filters}
   `;
 
   if (hadFocus) {
@@ -413,6 +472,7 @@ function repoCardHtml(group) {
         <div class="repo-card-head">
           <span class="repo-dot idle"></span>
           <span class="repo-name">${repo}</span>
+          ${starHtml(repo)}
           <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
         </div>
         <div class="repo-card-footer muted">No ${label}s have run yet.</div>
@@ -428,6 +488,7 @@ function repoCardHtml(group) {
       <div class="repo-card-head">
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
+        ${starHtml(repo)}
         <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
       <div class="card-pipelines">${preview.map(cardPipelineRowHtml).join('')}</div>
@@ -460,7 +521,7 @@ function renderDetail(group) {
   const header = `
     <div class="detail-header">
       <button class="ghost" onclick="closeRepo()">← All repos</button>
-      ${group ? `<span class="repo-name">${group.repo}</span><a href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
+      ${group ? `<span class="repo-name">${group.repo}</span>${starHtml(group.repo)}<a href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
     </div>`;
 
   if (!group) {
@@ -496,6 +557,7 @@ function tick() {
   }
 }
 
+applyTheme(currentTheme());
 fetchState();
 setInterval(fetchState, POLL_MS);
 setInterval(tick, 1000);
