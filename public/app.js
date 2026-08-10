@@ -289,14 +289,21 @@ function countRepoBuckets(groups) {
 }
 
 function render() {
-  const allGroups = groupByRepo(currentRuns(), installedRepos);
-  renderSummary(allGroups);
-  renderProgress(allGroups);
-  renderSidebarFilters(allGroups);
+  const rawGroups = groupByRepo(currentRuns(), installedRepos);
+  // "Hide inactive" means exactly that -- a repo with nothing current to
+  // show (whether it never ran, or everything it has is older than the
+  // cutoff) drops off the board entirely instead of sitting there as an
+  // empty card. Detail pages still resolve normally via rawGroups, so a
+  // direct link to a hidden repo doesn't break.
+  const boardGroups = hideInactive ? rawGroups.filter((g) => g.pipelines.length > 0) : rawGroups;
+  renderSummary(boardGroups);
+  renderProgress(boardGroups);
+  renderSidebarFilters(boardGroups);
   if (selectedRepo) {
-    renderDetail(allGroups.find((g) => g.repo === selectedRepo));
+    renderDetail(rawGroups.find((g) => g.repo === selectedRepo));
   } else {
-    let visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
+    let visibleGroups =
+      currentFilter === 'all' ? boardGroups : boardGroups.filter((g) => foldForCount(g.overall) === currentFilter);
     if (favoritesOnly) visibleGroups = visibleGroups.filter((g) => favorites.has(g.repo));
     renderGrid(visibleGroups);
   }
