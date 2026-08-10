@@ -117,11 +117,24 @@ input.search::placeholder { color: var(--fog); }
    and drops this grid layout — see .detail-header below). */
 .empty-msg { padding: 40px; text-align: center; color: var(--fog); font-size: 13px; grid-column: 1 / -1; }
 
-.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 
-.repo-card { background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
-  padding: 13px 15px; cursor: pointer; display: flex; flex-direction: column; gap: 10px; }
-.repo-card:hover { border-color: var(--fog); }
+/* Left border echoes the repo's overall status — the same "colored edge"
+   signal ArgoCD's own app cards use — so a row of cards reads as a strip
+   of traffic lights even before you read any text. idle (no runs yet)
+   deliberately gets no accent color; there's nothing to flag. */
+.repo-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 7px; padding: 14px 16px; cursor: pointer; display: flex; flex-direction: column;
+  gap: 12px; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
+/* Only the non-accent sides change on hover — the status-colored left
+   border stays put so hovering doesn't wash out the one signal that matters. */
+.repo-card:hover { border-top-color: var(--fog); border-right-color: var(--fog); border-bottom-color: var(--fog);
+  transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); }
+.repo-card.arrived { border-left-color: var(--arrived); }
+.repo-card.down { border-left-color: var(--down); }
+.repo-card.rolling { border-left-color: var(--rolling); }
+.repo-card.staged { border-left-color: var(--staged); }
+.repo-card.pulled { border-left-color: var(--pulled); }
 /* Not hidden — a quiet repo still belongs on the board with its last known
    state. Just visually recedes so it doesn't compete with active ones. */
 .repo-card.stale { opacity: 0.5; }
@@ -143,20 +156,23 @@ input.search::placeholder { color: var(--fog); }
 .star-btn.active { color: var(--star); }
 .star-btn:hover { color: var(--star); }
 
-.card-pipelines { display: flex; flex-direction: column; gap: 8px; }
-.card-pipeline-row { display: flex; align-items: center; gap: 8px; }
+.card-pipelines { display: flex; flex-direction: column; gap: 1px; }
+/* Same colored-left-border language as the repo card itself and the full
+   detail page's .pipeline rows — one consistent way to read status
+   everywhere in the app, just at three different sizes. */
+.card-pipeline-row { display: flex; align-items: center; gap: 10px; padding: 6px 0 6px 10px;
+  border-left: 2px solid var(--line); }
+.card-pipeline-row.arrived { border-left-color: var(--arrived); }
+.card-pipeline-row.down { border-left-color: var(--down); }
+.card-pipeline-row.rolling { border-left-color: var(--rolling); }
+.card-pipeline-row.staged { border-left-color: var(--staged); }
+.card-pipeline-row.pulled { border-left-color: var(--pulled); }
 .card-pipeline-text { flex: 1; min-width: 0; }
-.card-pipeline-ref { font-family: var(--mono); font-size: 11.5px; overflow: hidden;
+.card-pipeline-ref { font-family: var(--mono); font-weight: 600; font-size: 12px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .card-pipeline-workflow { font-family: var(--mono); font-size: 10px; margin-top: 1px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.card-more { font-size: 11px; color: var(--fog); }
-.pip { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.pip.arrived { background: var(--arrived); }
-.pip.down { background: var(--down); }
-.pip.rolling { background: var(--rolling); }
-.pip.staged { background: var(--staged); opacity: 0.6; }
-.pip.pulled { background: var(--pulled); }
+.card-more { font-size: 11px; color: var(--fog); padding-left: 10px; }
 
 .badge.small { font-size: 9px; padding: 2px 6px; }
 

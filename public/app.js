@@ -448,8 +448,7 @@ function cardPipelineRowHtml(run) {
   const b = styleBucket(stateOf(run));
   const ref = run.headBranch ?? run.event;
   return `
-    <div class="card-pipeline-row">
-      <span class="pip ${b}"></span>
+    <div class="card-pipeline-row ${b}">
       <div class="card-pipeline-text">
         <div class="card-pipeline-ref">${ref}</div>
         <div class="card-pipeline-workflow muted">${run.workflowName}</div>
@@ -468,7 +467,7 @@ function repoCardHtml(group) {
 
   if (pipelines.length === 0) {
     return `
-      <div class="repo-card idle ${flashClass}" onclick="openRepo('${repo}')">
+      <div class="repo-card ${overall} ${flashClass}" onclick="openRepo('${repo}')">
         <div class="repo-card-head">
           <span class="repo-dot idle"></span>
           <span class="repo-name">${repo}</span>
@@ -484,7 +483,7 @@ function repoCardHtml(group) {
   const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
 
   return `
-    <div class="repo-card ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${repo}')">
+    <div class="repo-card ${overall} ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${repo}')">
       <div class="repo-card-head">
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
