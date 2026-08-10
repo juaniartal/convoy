@@ -6,79 +6,72 @@
 <title>Convoy — Self-hosted GitHub Actions board</title>
 <meta name="description" content="Convoy is a self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization. Think ArgoCD, but for CI pipelines.">
 <link rel="stylesheet" href="./fonts/fonts.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23A879FF'/%3E%3Cstop offset='1' stop-color='%238A54F0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='1' y='1' width='126' height='126' rx='30' fill='%23140F28' stroke='%232A2247' stroke-width='2'/%3E%3Cg fill='%237A45E0'%3E%3Cpath d='M40 46 L56 48 L46 18 Z'/%3E%3Cpath d='M88 46 L72 48 L82 18 Z'/%3E%3C/g%3E%3Ccircle cx='64' cy='72' r='46' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='80' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='48' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='80' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='51' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='77' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='55' cy='67' r='4' fill='%23fff'/%3E%3Ccircle cx='81' cy='67' r='4' fill='%23fff'/%3E%3Cpath d='M57 88 L71 88 L64 101 Z' fill='%23F5B740'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect x='1' y='1' width='126' height='126' rx='22' fill='%23141419' stroke='%2326262e' stroke-width='2'/%3E%3Cg fill='%236d28d9'%3E%3Cpath d='M38 44 L58 50 L45 14 Z'/%3E%3Cpath d='M90 44 L70 50 L83 14 Z'/%3E%3C/g%3E%3Ccircle cx='64' cy='72' r='46' fill='%238b5cf6' stroke='%236d28d9' stroke-width='2'/%3E%3Ccircle cx='46' cy='70' r='28' fill='%236d28d9'/%3E%3Ccircle cx='82' cy='70' r='28' fill='%236d28d9'/%3E%3Ccircle cx='46' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='82' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='49' cy='72' r='11.5' fill='%23141419'/%3E%3Ccircle cx='79' cy='72' r='11.5' fill='%23141419'/%3E%3Ccircle cx='53' cy='66' r='4' fill='%23fff'/%3E%3Ccircle cx='83' cy='66' r='4' fill='%23fff'/%3E%3Cpath d='M64 84 L75 97 L64 110 L53 97 Z' fill='%23d99a3d' stroke='%23b97f27' stroke-width='1.5'/%3E%3C/svg%3E">
 <style>
   :root {
-    --ink: #0b0912; --panel: #171327; --inset: #120e20; --line: #272042;
-    --text: #ece9f7; --fog: #9a93b5;
-    --signal: #a879ff; --signal-deep: #7a45e0;
-    --arrived: #35d07f; --down: #ff5c5c; --rolling: #f5b740;
+    --ink: #0c0c10; --panel: #17171d; --inset: #101014; --line: #26262e;
+    --text: #e7e7ea; --fog: #8c8c96;
+    --signal: #8b5cf6; --signal-deep: #6d28d9;
+    --arrived: #2fb673; --down: #e5484d; --rolling: #d99a3d;
     --sans: 'Inter', system-ui, sans-serif;
-    --disp: 'Space Grotesk', 'Inter', sans-serif;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
     --maxw: 980px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  body {
-    font-family: var(--sans); background: var(--ink); color: var(--text); line-height: 1.6;
-    background-image:
-      radial-gradient(900px 520px at 84% -6%, rgba(168, 121, 255, 0.14), transparent 60%),
-      radial-gradient(680px 400px at -4% 10%, rgba(168, 121, 255, 0.06), transparent 55%);
-  }
+  body { font-family: var(--sans); background: var(--ink); color: var(--text); line-height: 1.6; }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 22px; }
   a { color: var(--signal); }
   .muted { color: var(--fog); }
-  .word { font-family: var(--disp); font-weight: 700; letter-spacing: 0.14em; }
-  code { font-family: var(--mono); background: rgba(168, 121, 255, 0.12); padding: 2px 6px;
-    border-radius: 4px; font-size: 0.9em; }
+  .word { font-family: var(--sans); font-weight: 800; letter-spacing: -0.01em; }
+  code { font-family: var(--mono); background: var(--inset); border: 1px solid var(--line);
+    padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
 
-  header { position: sticky; top: 0; z-index: 10; background: rgba(11, 9, 18, 0.95);
-    border-bottom: 1px solid var(--line); }
+  header { position: sticky; top: 0; z-index: 10; background: rgba(12, 12, 16, 0.92);
+    border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
   header .wrap { display: flex; align-items: center; gap: 10px; height: 62px; }
-  header .word { font-size: 18px; }
+  header .word { font-size: 16px; }
   header nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
   header nav a { color: var(--text); text-decoration: none; }
   header nav a:hover { color: var(--signal); }
 
   .hero { padding: 64px 0 40px; text-align: center; }
-  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase;
-    color: var(--signal); font-weight: 500; }
-  .hero h1 { font-family: var(--disp); font-weight: 600; font-size: clamp(32px, 5.5vw, 52px);
-    line-height: 1.08; margin: 16px 0 14px; letter-spacing: -0.01em; }
-  .hero p.lead { font-size: 17px; color: var(--fog); max-width: 46ch; margin: 0 auto 28px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--signal); font-weight: 600; }
+  .hero h1 { font-family: var(--sans); font-weight: 800; font-size: clamp(30px, 5.2vw, 48px);
+    line-height: 1.1; margin: 16px 0 14px; letter-spacing: -0.015em; }
+  .hero p.lead { font-size: 16.5px; color: var(--fog); max-width: 46ch; margin: 0 auto 28px; }
   .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 44px; }
-  .btn { font-family: var(--sans); font-weight: 600; font-size: 14px; padding: 12px 24px;
-    border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
-  .btn.primary { background: linear-gradient(135deg, var(--signal), var(--signal-deep)); color: #fff;
-    box-shadow: 0 4px 16px rgba(168, 121, 255, 0.35); }
-  .btn.ghost { background: var(--panel); border: 1px solid var(--line); color: var(--text); }
-  .btn.ghost:hover { background: var(--line); }
+  .btn { font-family: var(--sans); font-weight: 600; font-size: 14px; padding: 11px 22px;
+    border-radius: 7px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+  .btn.primary { background: var(--signal); color: #fff; }
+  .btn.primary:hover { background: var(--signal-deep); }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  .btn.ghost:hover { border-color: var(--fog); }
 
-  .screenshot { border-radius: 14px; overflow: hidden; border: 1px solid var(--line);
-    box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8); }
+  .screenshot { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
   .screenshot img { display: block; width: 100%; height: auto; }
 
-  section { padding: 60px 0; border-top: 1px solid var(--line); }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
   .sec-h { text-align: center; margin-bottom: 32px; }
-  .sec-h h2 { font-family: var(--disp); font-weight: 600; font-size: 26px; margin-bottom: 8px; }
+  .sec-h h2 { font-family: var(--sans); font-weight: 800; font-size: 24px; margin-bottom: 8px; letter-spacing: -0.01em; }
   .sec-h p { color: var(--fog); font-size: 14px; }
 
   .install-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; }
   .install-tabs button { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 18px;
-    border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fog); cursor: pointer; }
+    border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fog); cursor: pointer; }
   .install-tabs button.active { background: var(--signal); border-color: var(--signal); color: #fff; }
-  pre { background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+  pre { background: var(--inset); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px;
     overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.7; max-width: 640px; margin: 0 auto; }
   pre .cmt { color: var(--fog); }
   .install-panel { display: none; }
   .install-panel.active { display: block; }
 
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
-  .feature .ic { font-family: var(--mono); font-size: 11px; color: var(--signal); letter-spacing: 0.1em;
-    text-transform: uppercase; margin-bottom: 10px; display: block; }
-  .feature h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+  .feature .ic { font-family: var(--mono); font-size: 11px; color: var(--signal); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 10px; display: block; font-weight: 600; }
+  .feature h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
   .feature p { font-size: 13px; color: var(--fog); line-height: 1.6; }
 
   .why { max-width: 680px; margin: 0 auto; text-align: center; color: var(--fog); font-size: 15px; }
@@ -99,28 +92,25 @@
 <body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-  <linearGradient id="gbody" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#A879FF"/><stop offset="1" stop-color="#8A54F0"/>
-  </linearGradient>
   <symbol id="owlhead" viewBox="0 0 128 128">
-    <g fill="#7A45E0"><path d="M40 46 L56 48 L46 18 Z"/><path d="M88 46 L72 48 L82 18 Z"/></g>
-    <circle cx="64" cy="72" r="46" fill="url(#gbody)"/>
-    <circle cx="48" cy="70" r="27" fill="#6E3ED6"/><circle cx="80" cy="70" r="27" fill="#6E3ED6"/>
-    <circle cx="48" cy="70" r="22" fill="#fff"/><circle cx="80" cy="70" r="22" fill="#fff"/>
-    <circle cx="51" cy="72" r="11" fill="#241C3B"/><circle cx="77" cy="72" r="11" fill="#241C3B"/>
-    <circle cx="55" cy="67" r="4" fill="#fff"/><circle cx="81" cy="67" r="4" fill="#fff"/>
-    <path d="M57 88 L71 88 L64 101 Z" fill="#F5B740"/>
+    <g fill="#6d28d9"><path d="M38 44 L58 50 L45 14 Z"/><path d="M90 44 L70 50 L83 14 Z"/></g>
+    <circle cx="64" cy="72" r="46" fill="#8b5cf6" stroke="#6d28d9" stroke-width="2"/>
+    <circle cx="46" cy="70" r="28" fill="#6d28d9"/><circle cx="82" cy="70" r="28" fill="#6d28d9"/>
+    <circle cx="46" cy="70" r="22" fill="#fff"/><circle cx="82" cy="70" r="22" fill="#fff"/>
+    <circle cx="49" cy="72" r="11.5" fill="#141419"/><circle cx="79" cy="72" r="11.5" fill="#141419"/>
+    <circle cx="53" cy="66" r="4" fill="#fff"/><circle cx="83" cy="66" r="4" fill="#fff"/>
+    <path d="M64 84 L75 97 L64 110 L53 97 Z" fill="#d99a3d" stroke="#b97f27" stroke-width="1.5"/>
   </symbol>
 </defs></svg>
 
 <header>
   <div class="wrap">
-    <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+    <svg width="24" height="24" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
     <span class="word">CONVOY</span>
     <nav>
       <a href="#install">Install</a>
       <a href="#features">Features</a>
-      <a href="https://github.com/YOUR_ORG_OR_USER/convoy">GitHub</a>
+      <a href="https://github.com/juaniartal/convoy">GitHub</a>
     </nav>
   </div>
 </header>
@@ -135,11 +125,11 @@
       production deploys, and everything else.
     </p>
     <div class="cta-row">
-      <a class="btn primary" href="https://github.com/YOUR_ORG_OR_USER/convoy">View on GitHub</a>
+      <a class="btn primary" href="https://github.com/juaniartal/convoy">View on GitHub</a>
       <a class="btn ghost" href="#install">Quick install ↓</a>
     </div>
     <div class="screenshot">
-      <img src="./assets/screenshot.png" alt="Convoy dashboard showing four repos: one arrived (green), one down (red), one rolling (amber), one pulled (cancelled)" loading="lazy">
+      <img src="./assets/screenshot.png" alt="Convoy dashboard: a sidebar with status filters, and a grid of repo cards showing arrived (green), down (red), rolling (amber), and idle repos" loading="lazy">
     </div>
   </section>
 
@@ -179,10 +169,10 @@ docker run -p 3000:3000 \
   -e WEBHOOK_SECRET=... \
   -e PRIVATE_KEY_PATH=/app/private-key.pem \
   -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
-  ghcr.io/YOUR_ORG_OR_USER/convoy:latest</pre>
+  ghcr.io/juaniartal/convoy:latest</pre>
     </div>
     <p style="text-align:center; margin-top:18px; font-size:13px;" class="muted">
-      Just want to see it first? <code style="font-family:var(--mono)">npm run demo</code> runs Convoy
+      Just want to see it first? <code>npm run demo</code> runs Convoy
       with fake data — no GitHub App needed.
     </p>
   </section>
@@ -216,7 +206,7 @@ docker run -p 3000:3000 \
       <div class="feature">
         <span class="ic">Access</span>
         <h3>Bring your own auth</h3>
-        <p>No "Login with GitHub" to build or trust. Gate the dashboard with your existing SSO/VPN/ingress, or a simple shared API key.</p>
+        <p>No "Login with GitHub" to build or trust. Gate the dashboard with your existing SSO/VPN/ingress, or a simple shared API key — same tradeoff Prometheus makes.</p>
       </div>
       <div class="feature">
         <span class="ic">License</span>
@@ -233,8 +223,8 @@ docker run -p 3000:3000 \
     <span class="word" style="font-size:13px">CONVOY</span>
     <span class="maintainer">— built &amp; maintained by <a href="https://www.linkedin.com/in/juanignaciodev/" target="_blank" rel="noopener">Juan Ignacio</a></span>
     <div class="links">
-      <a href="https://github.com/YOUR_ORG_OR_USER/convoy">GitHub</a>
-      <a href="https://github.com/YOUR_ORG_OR_USER/convoy/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/juaniartal/convoy">GitHub</a>
+      <a href="https://github.com/juaniartal/convoy/blob/main/LICENSE">MIT License</a>
       <a href="https://www.linkedin.com/in/juanignaciodev/" target="_blank" rel="noopener">LinkedIn</a>
     </div>
   </div>
