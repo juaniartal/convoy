@@ -29,6 +29,7 @@ let searchQuery = '';
 let hideInactive = false;
 let showAllDeploys = false;
 let lastRuns = [];
+let installedRepos = []; // every repo the GitHub App is installed on, regardless of activity
 let lastError = null;
 let lastFetchedAt = null;
 let selectedRepo = repoFromHash(); // null = grid view; otherwise a repo full name
@@ -137,10 +138,11 @@ async function fetchState() {
     const params = new URLSearchParams({ view: currentTab });
     if (searchQuery) params.set('q', searchQuery);
     if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
-    const res = await fetch(`/api/state?${params}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
+    if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
+    const data = await stateRes.json();
     lastRuns = data.runs;
+    if (reposRes.ok) installedRepos = (await reposRes.json()).repos;
     lastError = null;
     lastFetchedAt = Date.now();
   } catch (err) {
@@ -191,8 +193,17 @@ function currentRuns() {
   return lastRuns;
 }
 
-function groupByRepo(runs) {
+// Starts from every repo the App is installed on, not just repos that
+// happen to have a run in the current tab/filter -- a repo that's never
+// deployed (or never had a plain CI run) still belongs on the board, same
+// as a repo that's gone quiet. Only exception: an active search narrows
+// this down to matching repo names, so searching still searches.
+function groupByRepo(runs, repos) {
+  const q = searchQuery.toLowerCase().trim();
+  const baseRepos = q ? repos.filter((r) => r.fullName.toLowerCase().includes(q)) : repos;
+
   const byRepo = new Map();
+  for (const repo of baseRepos) byRepo.set(repo.fullName, []);
   for (const run of runs) {
     if (!byRepo.has(run.repo)) byRepo.set(run.repo, []);
     byRepo.get(run.repo).push(run);
@@ -200,9 +211,9 @@ function groupByRepo(runs) {
   const groups = [...byRepo.entries()].map(([repo, pipelines]) => {
     pipelines.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const buckets = pipelines.map((p) => styleBucket(stateOf(p)));
-    const overall = BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
-    const stale = pipelines.every(isStale);
-    return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0].updatedAt };
+    const overall = pipelines.length === 0 ? 'idle' : BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
+    const stale = pipelines.length > 0 && pipelines.every(isStale);
+    return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
   });
   groups.sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
   return groups;
@@ -218,12 +229,15 @@ function unitLabel() {
 
 function countRepoBuckets(groups) {
   const c = { arrived: 0, down: 0, rolling: 0, staged: 0, total: groups.length };
-  for (const g of groups) c[foldForCount(g.overall)]++;
+  for (const g of groups) {
+    if (g.overall === 'idle') continue; // no runs yet isn't a status to tally
+    c[foldForCount(g.overall)]++;
+  }
   return c;
 }
 
 function render() {
-  const allGroups = groupByRepo(currentRuns());
+  const allGroups = groupByRepo(currentRuns(), installedRepos);
   renderSummary(allGroups);
   renderProgress(allGroups);
   if (selectedRepo) {
@@ -390,6 +404,18 @@ function repoCardHtml(group) {
   const flashClass = prevOverall && prevOverall !== overall ? `flash-${overall}` : '';
   prevRepoOverall.set(repo, overall);
 
+  if (pipelines.length === 0) {
+    return `
+      <div class="repo-card idle ${flashClass}" onclick="openRepo('${repo}')">
+        <div class="repo-card-head">
+          <span class="repo-dot idle"></span>
+          <span class="repo-name">${repo}</span>
+          <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+        </div>
+        <div class="repo-card-footer muted">No ${label}s have run yet.</div>
+      </div>`;
+  }
+
   const preview = pipelines.slice(0, CARD_PREVIEW_LIMIT);
   const hiddenCount = pipelines.length - preview.length;
   const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
@@ -436,6 +462,11 @@ function renderDetail(group) {
 
   if (!group) {
     grid.innerHTML = `${header}<div class="empty-msg">This repo has no ${unitLabel()}s in the current view.</div>`;
+    return;
+  }
+
+  if (group.pipelines.length === 0) {
+    grid.innerHTML = `${header}<div class="empty-msg">No ${unitLabel()}s have run yet.</div>`;
     return;
   }
 

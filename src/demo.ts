@@ -120,6 +120,16 @@ seedRun('acme-corp/web-app', {
   actor: 'priya',
 });
 
+// Installed but nothing has run in this view yet -- e.g. a repo the App
+// watches that has no release tags, so it never shows up on Deploys. Never
+// hidden: still gets a card, just an empty one.
+state.upsertRepo({
+  id: nextId++,
+  fullName: 'acme-corp/legacy-billing',
+  private: true,
+  defaultBranch: 'main',
+});
+
 // A gentle heartbeat so the demo actually looks "live": the rolling deploy
 // eventually lands, then a fresh one kicks off a bit later. Loops forever.
 let phase: 'rolling' | 'landed' | 'restarting' = 'rolling';
