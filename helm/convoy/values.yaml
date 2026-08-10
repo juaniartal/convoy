@@ -1,7 +1,7 @@
 # Default values for the Convoy Helm chart.
 
 image:
-  repository: ghcr.io/YOUR_ORG_OR_USER/convoy
+  repository: ghcr.io/juaniartal/convoy
   tag: latest
   pullPolicy: IfNotPresent
 
