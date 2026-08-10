@@ -99,6 +99,7 @@ input.search::placeholder { color: var(--fog); }
 .repo-dot.rolling { background: var(--rolling); animation: pulse 1.4s ease-in-out infinite; }
 .repo-dot.staged { background: var(--staged); }
 .repo-dot.pulled { background: var(--pulled); }
+.repo-dot.idle { background: var(--fog); }
 .repo-name { font-family: var(--mono); font-weight: 600; font-size: 12.5px; word-break: break-all; }
 .repo-card-head .repo-name { flex: 1; }
 .repo-card-footer { font-size: 11px; }
