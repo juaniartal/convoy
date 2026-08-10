@@ -48,7 +48,17 @@ function stateOf(run) {
   return 'queued';
 }
 
-const ICON = { success: '✓', failure: '✕', running: '●', queued: '○', skipped: '–', cancelled: '–' };
+// Small inline vectors instead of Unicode glyphs — consistent stroke width
+// and alignment across platforms/fonts, and they pick up the job-node's
+// color via currentColor rather than needing their own color rules.
+const ICON = {
+  success: '<svg viewBox="0 0 16 16" width="11" height="11"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  failure: '<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  running: '<svg viewBox="0 0 16 16" width="9" height="9"><circle cx="8" cy="8" r="6" fill="currentColor"/></svg>',
+  queued: '<svg viewBox="0 0 16 16" width="9" height="9"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  skipped: '<svg viewBox="0 0 16 16" width="11" height="7"><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  cancelled: '<svg viewBox="0 0 16 16" width="11" height="7"><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+};
 const BADGE_LABEL = {
   success: 'Arrived',
   failure: 'Down',
