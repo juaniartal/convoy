@@ -16,13 +16,17 @@ export interface ApiAppOptions {
 export function createApiApp(state: StateStore, options: ApiAppOptions): Express {
   const app = express();
 
-  if (options.apiKey) {
-    app.use(requireAuth(options.apiKey));
-  }
-
+  // Registered before the auth gate on purpose: Kubernetes' own liveness/
+  // readiness probes hit this with no credentials, and health status isn't
+  // sensitive (no repo/run data) -- gating it would make an apiKey-protected
+  // deployment permanently unhealthy in the eyes of its own orchestrator.
   app.get('/api/healthz', (_req, res) => {
     res.json({ status: 'ok', ...options.getHealthInfo() });
   });
+
+  if (options.apiKey) {
+    app.use(requireAuth(options.apiKey));
+  }
 
   app.get('/api/state', (req, res) => {
     const view = parseView(req.query.view);

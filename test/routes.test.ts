@@ -33,21 +33,29 @@ describe('createApiApp with an apiKey set', () => {
     server.close();
   });
 
-  it('rejects a request with no credentials, prompting for Basic auth', async () => {
+  // /api/healthz stays exempt even when an apiKey is set -- it's what
+  // Kubernetes' own liveness/readiness probes hit with no credentials, and
+  // it exposes no repo/run data, just "is the process up".
+  it('never gates /api/healthz, even with an apiKey set', async () => {
     const res = await fetch(`${baseUrl}/api/healthz`);
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a real route with no credentials, prompting for Basic auth', async () => {
+    const res = await fetch(`${baseUrl}/api/repos`);
     expect(res.status).toBe(401);
     expect(res.headers.get('www-authenticate')).toContain('Basic');
   });
 
   it('accepts a matching Bearer token', async () => {
-    const res = await fetch(`${baseUrl}/api/healthz`, {
+    const res = await fetch(`${baseUrl}/api/repos`, {
       headers: { Authorization: 'Bearer secret123' },
     });
     expect(res.status).toBe(200);
   });
 
   it('rejects a wrong Bearer token', async () => {
-    const res = await fetch(`${baseUrl}/api/healthz`, {
+    const res = await fetch(`${baseUrl}/api/repos`, {
       headers: { Authorization: 'Bearer wrong' },
     });
     expect(res.status).toBe(401);
@@ -55,7 +63,7 @@ describe('createApiApp with an apiKey set', () => {
 
   it('accepts Basic auth with the key as the password, any username', async () => {
     const creds = Buffer.from('anyone:secret123').toString('base64');
-    const res = await fetch(`${baseUrl}/api/healthz`, {
+    const res = await fetch(`${baseUrl}/api/repos`, {
       headers: { Authorization: `Basic ${creds}` },
     });
     expect(res.status).toBe(200);
@@ -63,7 +71,7 @@ describe('createApiApp with an apiKey set', () => {
 
   it('rejects Basic auth with the wrong password', async () => {
     const creds = Buffer.from('anyone:wrong').toString('base64');
-    const res = await fetch(`${baseUrl}/api/healthz`, {
+    const res = await fetch(`${baseUrl}/api/repos`, {
       headers: { Authorization: `Basic ${creds}` },
     });
     expect(res.status).toBe(401);
@@ -77,7 +85,7 @@ describe('createApiApp with no apiKey', () => {
       getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
     });
     const { server, baseUrl } = await listen(app);
-    const res = await fetch(`${baseUrl}/api/healthz`);
+    const res = await fetch(`${baseUrl}/api/repos`);
     server.close();
     expect(res.status).toBe(200);
   });
