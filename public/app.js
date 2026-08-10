@@ -20,7 +20,7 @@ const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 // default becomes a wall of text you can't scan alongside the other repos.
 // Preview the most recent few on the card; the repo's own detail page (one
 // click away) always shows the full list.
-const CARD_PREVIEW_LIMIT = 3;
+const CARD_PREVIEW_LIMIT = 5;
 
 // --- State ---
 let currentTab = 'deploys';
