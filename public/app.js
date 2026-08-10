@@ -391,7 +391,10 @@ function cardPipelineRowHtml(run) {
   return `
     <div class="card-pipeline-row">
       <span class="pip ${b}"></span>
-      <span class="card-pipeline-ref">${ref}</span>
+      <div class="card-pipeline-text">
+        <div class="card-pipeline-ref">${ref}</div>
+        <div class="card-pipeline-workflow muted">${run.workflowName}</div>
+      </div>
       <span class="badge ${b} small">${BADGE_LABEL[stateOf(run)]}</span>
     </div>`;
 }
