@@ -15,6 +15,13 @@ const RELEASE_WINDOW_MS = 60 * 60 * 1000;
 // needs the most attention, not just its most recent one.
 const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 
+// A repo with many concurrent branches (qa/sandbox/feature-*/...) can easily
+// have a dozen live pipelines at once — a card showing all of them by
+// default becomes a wall of text you can't scan alongside the other repos.
+// Preview the most recent few on the card; the repo's own detail page (one
+// click away) always shows the full list.
+const CARD_PREVIEW_LIMIT = 3;
+
 // --- State ---
 let currentTab = 'deploys';
 let currentFilter = 'all';
@@ -24,15 +31,9 @@ let showAllDeploys = false;
 let lastRuns = [];
 let lastError = null;
 let lastFetchedAt = null;
-const expandedRepos = new Set();
-const fullyExpandedRepos = new Set(); // repos where "show N more pipelines" was clicked
-const prevBuckets = new Map(); // run id -> bucket, to flash on change across polls
-
-// A repo with many concurrent branches (qa/sandbox/feature-*/...) can easily
-// have a dozen live pipelines at once — rendering all of them by default
-// turns one expanded row into a wall of cards. Show the most recent few and
-// let "show N more" reveal the rest, instead of hiding them outright.
-const PIPELINE_PREVIEW_LIMIT = 4;
+let selectedRepo = repoFromHash(); // null = grid view; otherwise a repo full name
+const prevBuckets = new Map(); // run id -> bucket, to flash a pipeline card on change
+const prevRepoOverall = new Map(); // repo -> overall bucket, to flash a repo card on change
 
 // --- Status vocabulary (mirrors the backend's stateOf/classify semantics) ---
 
@@ -95,6 +96,30 @@ function isStale(run) {
   return Date.now() - new Date(run.updatedAt).getTime() > STALE_AFTER_HOURS * 3600_000;
 }
 
+// --- Navigation: grid of repo cards is the default view; clicking one
+// drills into a dedicated page for just that repo. Backed by the URL hash
+// so it survives a refresh and works with the browser's back button. ---
+
+function repoFromHash() {
+  const m = /^#repo\/(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function openRepo(repo) {
+  location.hash = `repo/${encodeURIComponent(repo)}`;
+}
+
+function closeRepo() {
+  history.pushState('', document.title, window.location.pathname + window.location.search);
+  selectedRepo = null;
+  render();
+}
+
+window.addEventListener('hashchange', () => {
+  selectedRepo = repoFromHash();
+  render();
+});
+
 // --- Fetch ---
 
 async function fetchState() {
@@ -118,6 +143,7 @@ function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
   prevBuckets.clear();
+  prevRepoOverall.clear();
   fetchState();
 }
 
@@ -141,23 +167,8 @@ function onToggleShowAllDeploys() {
   render();
 }
 
-function toggleExpand(repo) {
-  if (expandedRepos.has(repo)) {
-    expandedRepos.delete(repo);
-    fullyExpandedRepos.delete(repo);
-  } else {
-    expandedRepos.add(repo);
-  }
-  render();
-}
-
-function showAllPipelinesFor(repo) {
-  fullyExpandedRepos.add(repo);
-  render();
-}
-
-// --- Grouping: repo-centric, ArgoCD-style — one row per repo, its
-// pipelines nested inside, instead of a flat list of individual runs. ---
+// --- Grouping: repo-centric, ArgoCD-style — one card per repo, its
+// pipelines summarized inside, instead of a flat list of individual runs. ---
 
 function scopeToCurrentRelease(runs) {
   if (!runs.length) return runs;
@@ -187,6 +198,12 @@ function groupByRepo(runs) {
   return groups;
 }
 
+// On the Deploys tab these entries are releases, not "pipelines" — the
+// Pipelines tab is the only place that word actually describes them.
+function unitLabel() {
+  return currentTab === 'deploys' ? 'deploy' : 'pipeline';
+}
+
 // --- Rendering ---
 
 function countRepoBuckets(groups) {
@@ -197,10 +214,14 @@ function countRepoBuckets(groups) {
 
 function render() {
   const allGroups = groupByRepo(currentRuns());
-  const visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
   renderSummary(allGroups);
   renderProgress(allGroups);
-  renderGrid(visibleGroups);
+  if (selectedRepo) {
+    renderDetail(allGroups.find((g) => g.repo === selectedRepo));
+  } else {
+    const visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
+    renderGrid(visibleGroups);
+  }
 }
 
 function renderSummary(groups) {
@@ -224,17 +245,21 @@ function renderSummary(groups) {
       ? `${c.total} repos · ${showAllDeploys ? 'all deploys' : 'current release'}`
       : `${c.total} repos`;
 
-  const filters = [
-    ['all', 'All'],
-    ['down', 'Down'],
-    ['rolling', 'Rolling'],
-    ['staged', 'Staged'],
-  ]
-    .map(
-      ([f, label]) =>
-        `<button class="ghost ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">${label}</button>`,
-    )
-    .join('');
+  // Filters act on which repo cards show in the grid — meaningless while
+  // looking at a single repo's detail page, so hide them there.
+  const filters = selectedRepo
+    ? ''
+    : `<div class="filter-row">${[
+        ['all', 'All'],
+        ['down', 'Down'],
+        ['rolling', 'Rolling'],
+        ['staged', 'Staged'],
+      ]
+        .map(
+          ([f, label]) =>
+            `<button class="ghost ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">${label}</button>`,
+        )
+        .join('')}</div>`;
 
   const deployToggle =
     currentTab === 'deploys'
@@ -259,7 +284,7 @@ function renderSummary(groups) {
           oninput="onSearchInput(this.value)">
       </div>
     </div>
-    <div class="filter-row">${filters}</div>
+    ${filters}
   `;
 
   if (hadFocus) {
@@ -333,54 +358,78 @@ function pipelineHtml(run) {
     </div>`;
 }
 
-function repoRowHtml(group) {
+// A compact row inside a repo card — just enough to recognize which
+// pipeline it is and its current state at a glance. Full detail (jobs,
+// duration, actor, link) lives on the repo's own detail page.
+function cardPipelineRowHtml(run) {
+  const b = styleBucket(stateOf(run));
+  const ref = run.headBranch ?? run.event;
+  return `
+    <div class="card-pipeline-row">
+      <span class="pip ${b}"></span>
+      <span class="card-pipeline-ref">${ref}</span>
+      <span class="badge ${b} small">${BADGE_LABEL[stateOf(run)]}</span>
+    </div>`;
+}
+
+function repoCardHtml(group) {
   const { repo, pipelines, overall, stale } = group;
-  const expanded = expandedRepos.has(repo);
+  const label = unitLabel();
 
-  const pips = pipelines
-    .map((p) => {
-      const b = styleBucket(stateOf(p));
-      const ref = p.headBranch ?? p.event;
-      return `<span class="pip ${b}" title="${ref} (${p.workflowName}): ${BADGE_LABEL[stateOf(p)]}"></span>`;
-    })
-    .join('');
+  const prevOverall = prevRepoOverall.get(repo);
+  const flashClass = prevOverall && prevOverall !== overall ? `flash-${overall}` : '';
+  prevRepoOverall.set(repo, overall);
 
-  // pipelines is already sorted most-recently-updated first, so the preview
-  // is the N most current pipelines, not an arbitrary slice.
-  const showAll = fullyExpandedRepos.has(repo);
-  const visiblePipelines = showAll ? pipelines : pipelines.slice(0, PIPELINE_PREVIEW_LIMIT);
-  const hiddenCount = pipelines.length - visiblePipelines.length;
-  // On the Deploys tab these entries are releases, not "pipelines" — the
-  // Pipelines tab is the only place that word actually describes them.
-  const unitLabel = currentTab === 'deploys' ? 'deploy' : 'pipeline';
-  const showMore = hiddenCount > 0
-    ? `<button class="ghost show-more" onclick="event.stopPropagation(); showAllPipelinesFor('${repo}')">Show ${hiddenCount} more ${unitLabel}${hiddenCount === 1 ? '' : 's'}</button>`
-    : '';
-
-  const detail = expanded
-    ? `<div class="repo-detail">${visiblePipelines.map(pipelineHtml).join('')}${showMore}</div>`
-    : '';
+  const preview = pipelines.slice(0, CARD_PREVIEW_LIMIT);
+  const hiddenCount = pipelines.length - preview.length;
+  const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
 
   return `
-    <div class="repo-row ${stale ? 'stale' : ''} ${expanded ? 'expanded' : ''}">
-      <div class="repo-row-head" onclick="toggleExpand('${repo}')">
-        <span class="expand-caret">${expanded ? '▾' : '▸'}</span>
+    <div class="repo-card ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${repo}')">
+      <div class="repo-card-head">
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
-        <span class="repo-pips">${pips}</span>
-        <span class="repo-summary muted">${pipelines.length} ${unitLabel}${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</span>
         <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
-      ${detail}
+      <div class="card-pipelines">${preview.map(cardPipelineRowHtml).join('')}</div>
+      ${more}
+      <div class="repo-card-footer muted">${pipelines.length} ${label}${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</div>
     </div>`;
 }
 
 function renderGrid(groups) {
   const grid = document.getElementById('grid');
-
+  grid.className = 'repo-grid';
   grid.innerHTML =
-    groups.map(repoRowHtml).join('') ||
+    groups.map(repoCardHtml).join('') ||
     `<div class="empty-msg">${lastRuns.length ? 'Nothing matches this filter.' : 'No runs seen yet — waiting on webhooks / first reconciliation pass.'}</div>`;
+
+  setTimeout(() => {
+    grid.querySelectorAll('[class*="flash-"]').forEach((el) => {
+      el.className = el.className.replace(/\bflash-[a-z]+\b/g, '').trim();
+    });
+  }, 1500);
+}
+
+// The dedicated single-repo page — always shows every pipeline in full
+// (jobs, duration, actor, link), no preview cap. This is the "click in to
+// see everything running or failed for just this repo" view.
+function renderDetail(group) {
+  const grid = document.getElementById('grid');
+  grid.className = '';
+
+  const header = `
+    <div class="detail-header">
+      <button class="ghost" onclick="closeRepo()">← All repos</button>
+      ${group ? `<span class="repo-name">${group.repo}</span><a href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
+    </div>`;
+
+  if (!group) {
+    grid.innerHTML = `${header}<div class="empty-msg">This repo has no ${unitLabel()}s in the current view.</div>`;
+    return;
+  }
+
+  grid.innerHTML = `${header}<div class="repo-detail">${group.pipelines.map(pipelineHtml).join('')}</div>`;
 
   setTimeout(() => {
     grid.querySelectorAll('[class*="flash-"]').forEach((el) => {

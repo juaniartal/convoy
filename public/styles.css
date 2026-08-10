@@ -89,20 +89,22 @@ input.search::placeholder { color: var(--fog); }
 .pill.green { color: var(--arrived); } .pill.red { color: var(--down); }
 .pill.yellow { color: var(--rolling); } .pill.gray { color: var(--fog); }
 
-/* Repo rows — one row per repo (ArgoCD-style), pipelines nested inside via
-   expand, instead of a flat grid of individual run cards. */
-.grid { display: flex; flex-direction: column; gap: 8px; }
-.empty-msg { padding: 40px; text-align: center; color: var(--fog); font-size: 13px; }
+/* Repo cards — ArgoCD-style grid, one card per repo, so many repos are
+   scannable at once. Each card previews its most recent pipelines; a click
+   drills into that repo's own full-detail page (#grid swaps its content
+   and drops this grid layout — see .detail-header below). */
+.empty-msg { padding: 40px; text-align: center; color: var(--fog); font-size: 13px; grid-column: 1 / -1; }
 
-.repo-row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+.repo-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 13px 15px; cursor: pointer; display: flex; flex-direction: column; gap: 10px; }
+.repo-card:hover { border-color: var(--signal-deep); background: var(--inset); }
 /* Not hidden — a quiet repo still belongs on the board with its last known
    state. Just visually recedes so it doesn't compete with active ones. */
-.repo-row.stale { opacity: 0.5; }
-.repo-row.stale:hover { opacity: 0.85; }
-.repo-row-head { display: flex; align-items: center; gap: 10px; padding: 12px 15px; cursor: pointer; }
-.repo-row-head:hover { background: var(--inset); }
-.repo-row.expanded .repo-row-head { background: var(--inset); border-bottom: 1px solid var(--line); }
-.expand-caret { color: var(--fog); font-size: 10px; width: 8px; flex-shrink: 0; }
+.repo-card.stale { opacity: 0.5; }
+.repo-card.stale:hover { opacity: 0.85; }
+.repo-card-head { display: flex; align-items: center; gap: 8px; }
 .repo-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .repo-dot.arrived { background: var(--arrived); }
 .repo-dot.down { background: var(--down); }
@@ -110,17 +112,27 @@ input.search::placeholder { color: var(--fog); }
 .repo-dot.staged { background: var(--staged); }
 .repo-dot.pulled { background: var(--pulled); }
 .repo-name { font-family: var(--mono); font-weight: 600; font-size: 13px; word-break: break-all; }
-.repo-pips { display: flex; gap: 3px; flex-wrap: wrap; }
-.pip { width: 14px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.repo-card-head .repo-name { flex: 1; }
+.repo-card-footer { font-size: 11.5px; }
+
+.card-pipelines { display: flex; flex-direction: column; gap: 6px; }
+.card-pipeline-row { display: flex; align-items: center; gap: 8px; }
+.card-pipeline-ref { font-family: var(--mono); font-size: 11.5px; flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.card-more { font-size: 11px; color: var(--fog); }
+.pip { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .pip.arrived { background: var(--arrived); }
 .pip.down { background: var(--down); }
 .pip.rolling { background: var(--rolling); }
 .pip.staged { background: var(--staged); opacity: 0.6; }
 .pip.pulled { background: var(--pulled); }
-.repo-summary { font-size: 11.5px; margin-left: auto; white-space: nowrap; }
 
-.repo-detail { display: flex; flex-direction: column; gap: 1px; }
-.show-more { align-self: center; margin: 10px 0 4px; padding: 6px 16px; font-size: 12px; }
+.badge.small { font-size: 9px; padding: 2px 6px; }
+
+/* Repo detail page — replaces the card grid entirely when a repo is open. */
+.detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.detail-header .repo-name { font-size: 15px; }
+.repo-detail { display: flex; flex-direction: column; gap: 1px; border-radius: 10px; overflow: hidden; }
 
 .pipeline { background: var(--inset); padding: 12px 15px 12px 24px; border-left: 3px solid var(--staged); }
 .pipeline.arrived { border-left-color: var(--arrived); }
@@ -131,10 +143,10 @@ input.search::placeholder { color: var(--fog); }
 .pipeline.stale { opacity: 0.5; }
 .run-updated { font-family: var(--mono); font-size: 10px; color: var(--fog); margin-top: 8px; }
 
-.pipeline.flash-arrived { animation: flashArrived 1.4s ease-out; }
-.pipeline.flash-down { animation: flashDown 1.4s ease-out; }
-.pipeline.flash-rolling { animation: flashRolling 1.4s ease-out; }
-.pipeline.flash-pulled { animation: flashPulled 1.4s ease-out; }
+.pipeline.flash-arrived, .repo-card.flash-arrived { animation: flashArrived 1.4s ease-out; }
+.pipeline.flash-down, .repo-card.flash-down { animation: flashDown 1.4s ease-out; }
+.pipeline.flash-rolling, .repo-card.flash-rolling { animation: flashRolling 1.4s ease-out; }
+.pipeline.flash-pulled, .repo-card.flash-pulled { animation: flashPulled 1.4s ease-out; }
 @keyframes flashArrived { 0% { box-shadow: 0 0 0 0 rgba(53, 208, 127, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(53, 208, 127, 0); } }
 @keyframes flashDown { 0% { box-shadow: 0 0 0 0 rgba(255, 92, 92, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(255, 92, 92, 0); } }
 @keyframes flashRolling { 0% { box-shadow: 0 0 0 0 rgba(245, 183, 64, 0.65); } 100% { box-shadow: 0 0 0 12px rgba(245, 183, 64, 0); } }
