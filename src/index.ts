@@ -29,6 +29,17 @@ const BOOT_LOOKBACK_HOURS = 48;
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
 const app: ApplicationFunction = (probotApp, { addHandler }) => {
+  // Convoy has no login of its own (same tradeoff Prometheus makes) --
+  // CONVOY_API_KEY is the only built-in gate. Someone deploying without
+  // either that or their own SSO/VPN in front deserves a nudge before they
+  // find out the hard way that the dashboard is wide open.
+  if (!process.env.CONVOY_API_KEY) {
+    probotApp.log.warn(
+      'CONVOY_API_KEY is not set — the dashboard has no access control of its own. ' +
+        'Do not expose it directly to the public internet without an authenticating proxy, VPN, or SSO in front. See the README\'s "Access control" section.',
+    );
+  }
+
   const state = new StateStore();
   const config = loadConfig(process.env.CONVOY_CONFIG_PATH ?? './convoy.yaml');
 

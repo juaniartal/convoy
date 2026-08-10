@@ -98,6 +98,15 @@ workflow-name), plus an `excludeRepos` list for archived/irrelevant repos.
 
 ## Access control
 
+> **⚠️ Convoy has no login of its own — don't expose it directly to the
+> public internet.** This is the same tradeoff Prometheus and most
+> self-hosted, read-only monitoring tools make on purpose: building and
+> maintaining a real auth system (users, sessions, SSO) is a lot of
+> complexity for a tool that can't change anything, so instead Convoy
+> expects to sit behind whatever access control your network already has.
+> That's a deliberate v1 choice, not an oversight — see below for the
+> two ways to do it.
+
 **Publishing Convoy's source code doesn't expose anything about your running
 instance** — your GitHub App's private key and webhook secret live only in
 your own `.env`/Kubernetes Secret, never in git. The one thing you do need to
@@ -112,8 +121,12 @@ something in front of it:
    you are; it just needs to not be reachable by people who shouldn't see it.
 2. **Set `CONVOY_API_KEY`** — a simple shared-secret gate if you don't have
    (1) available yet. Every request must include
-   `Authorization: Bearer <key>`. This is a stopgap, not a real access
-   control system — prefer (1) if you can.
+   `Authorization: Bearer <key>`, which a plain browser tab won't send on
+   its own — this suits API/script access more than daily browsing.
+3. **No SSO/VPN handy, but still want an actual login screen?** A free
+   tunnel with built-in auth (e.g. Cloudflare Tunnel + Cloudflare Access)
+   can require you to sign in with Google/GitHub before traffic ever
+   reaches Convoy — without Convoy having to implement anything itself.
 
 ## Running it for real
 
