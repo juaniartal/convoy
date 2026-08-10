@@ -411,7 +411,7 @@ function pipelineHtml(run) {
       return `
         <div class="job">
           <div class="job-node ${jb}">${ICON[js]}</div>
-          <div class="job-name">${j.name} <span class="dur" ${startedAttr}>${fmtDur(j.startedAt, j.completedAt)}</span></div>
+          <div class="job-name">${escapeHtml(j.name)} <span class="dur" ${startedAttr}>${fmtDur(j.startedAt, j.completedAt)}</span></div>
         </div>`;
     })
     .join('');
@@ -424,7 +424,7 @@ function pipelineHtml(run) {
 
   const runStartedAttr = label === 'running' ? `data-started="${run.createdAt}"` : '';
   const runDur = fmtDur(run.createdAt, label === 'running' ? null : run.updatedAt);
-  const actorLine = run.actor ? `<span class="run-actor">by ${run.actor}</span>` : '';
+  const actorLine = run.actor ? `<span class="run-actor">by ${escapeHtml(run.actor)}</span>` : '';
 
   // Branch/tag is the heading, not the workflow name — plenty of real setups
   // trigger the exact same workflow ("Containerize and Deploy") from every
@@ -434,8 +434,8 @@ function pipelineHtml(run) {
     <div class="pipeline ${bucket} ${staleClass} ${flashClass}">
       <div class="pipeline-head">
         <div>
-          <div class="pipeline-name">${run.headBranch ?? run.event}</div>
-          <div class="run-ref">${run.workflowName} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
+          <div class="pipeline-name">${escapeHtml(run.headBranch ?? run.event)}</div>
+          <div class="run-ref">${escapeHtml(run.workflowName)} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
         </div>
         <div class="run-actions">
           <span class="badge ${bucket}">${BADGE_LABEL[label]}</span>
@@ -457,8 +457,8 @@ function cardPipelineRowHtml(run) {
   return `
     <div class="card-pipeline-row ${b}">
       <div class="card-pipeline-text">
-        <div class="card-pipeline-ref">${ref}</div>
-        <div class="card-pipeline-workflow muted">${run.workflowName}</div>
+        <div class="card-pipeline-ref">${escapeHtml(ref)}</div>
+        <div class="card-pipeline-workflow muted">${escapeHtml(run.workflowName)}</div>
       </div>
       <span class="badge ${b} small">${BADGE_LABEL[stateOf(run)]}</span>
     </div>`;
@@ -551,6 +551,18 @@ function renderDetail(group) {
 
 function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+// Branch/tag names, workflow names, and job names come from GitHub data
+// that this app doesn't control -- git ref names allow characters like
+// < > " that would otherwise break out of these template strings and
+// inject markup. Everything rendered as text (not an attribute) goes
+// through this before it reaches innerHTML.
+function escapeHtml(s) {
+  return String(s ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
 }
 
 function tick() {

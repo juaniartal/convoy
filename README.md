@@ -139,7 +139,7 @@ docker run -p 3000:3000 \
   -e PRIVATE_KEY_PATH=/app/private-key.pem \
   -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
   -v $(pwd)/convoy.yaml:/app/convoy.yaml:ro \
-  ghcr.io/YOUR_ORG_OR_USER/convoy:latest
+  ghcr.io/juaniartal/convoy:latest
 ```
 
 **Kubernetes (Helm):**
