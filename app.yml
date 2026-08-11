@@ -4,7 +4,7 @@
 # hand. Safe to commit — it contains no secrets, only defaults.
 name: Convoy
 description: Self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization.
-url: https://github.com/YOUR_ORG_OR_USER/convoy
+url: https://github.com/juaniartal/convoy
 public: false
 # installation / installation_repositories are NOT listed here on purpose —
 # GitHub sends those to every App automatically regardless of subscription,

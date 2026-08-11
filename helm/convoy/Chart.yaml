@@ -4,8 +4,9 @@ description: Self-hosted, real-time GitHub Actions pipeline visualizer for your 
 type: application
 version: 0.1.0
 appVersion: '0.1.0'
-home: https://github.com/YOUR_ORG_OR_USER/convoy
+home: https://github.com/juaniartal/convoy
 sources:
-  - https://github.com/YOUR_ORG_OR_USER/convoy
+  - https://github.com/juaniartal/convoy
 maintainers:
-  - name: Convoy contributors
+  - name: Juan Ignacio Artal
+    url: https://www.linkedin.com/in/juanignaciodev/

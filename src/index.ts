@@ -17,9 +17,29 @@ import {
  * exists to catch deliveries GitHub failed to send. */
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
+/** Every restart starts from empty in-memory state (no database), so the
+ * very first reconciliation pass needs a much wider window than the
+ * ongoing safety net does — otherwise a repo that last ran more than
+ * reconcile.ts's default 2h lookback ago would show as if it never ran at
+ * all, until something happens to touch it again. Matches the frontend's
+ * own "stale after 48h" threshold, so nothing the UI would still show
+ * (muted) is invisible to the backend that feeds it. */
+const BOOT_LOOKBACK_HOURS = 48;
+
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
 const app: ApplicationFunction = (probotApp, { addHandler }) => {
+  // Convoy has no login of its own (same tradeoff Prometheus makes) --
+  // CONVOY_API_KEY is the only built-in gate. Someone deploying without
+  // either that or their own SSO/VPN in front deserves a nudge before they
+  // find out the hard way that the dashboard is wide open.
+  if (!process.env.CONVOY_API_KEY) {
+    probotApp.log.warn(
+      'CONVOY_API_KEY is not set — the dashboard has no access control of its own. ' +
+        'Do not expose it directly to the public internet without an authenticating proxy, VPN, or SSO in front. See the README\'s "Access control" section.',
+    );
+  }
+
   const state = new StateStore();
   const config = loadConfig(process.env.CONVOY_CONFIG_PATH ?? './convoy.yaml');
 
@@ -33,7 +53,7 @@ const app: ApplicationFunction = (probotApp, { addHandler }) => {
   let lastReconciledAt: string | null = null;
   let installationCount = 0;
 
-  async function reconcileAll(): Promise<void> {
+  async function reconcileAll(options: { lookbackHours?: number } = {}): Promise<void> {
     try {
       const appClient = await probotApp.auth();
       const installations = await appClient.paginate<{ id: number }>('GET /app/installations');
@@ -41,7 +61,7 @@ const app: ApplicationFunction = (probotApp, { addHandler }) => {
 
       for (const installation of installations) {
         const client = await probotApp.auth(installation.id);
-        const result = await runReconciliation(client, state, config);
+        const result = await runReconciliation(client, state, config, options);
         if (result.aborted) {
           probotApp.log.warn(
             { installationId: installation.id },
@@ -56,8 +76,10 @@ const app: ApplicationFunction = (probotApp, { addHandler }) => {
   }
 
   // Run once immediately so a fresh boot isn't a blank dashboard while
-  // waiting for the first timer tick, then keep it as a background safety net.
-  void reconcileAll();
+  // waiting for the first timer tick — with a wide lookback since state is
+  // empty at this point. Later passes use reconcile.ts's narrower default;
+  // they're a safety net for recent webhook misses, not repopulation.
+  void reconcileAll({ lookbackHours: BOOT_LOOKBACK_HOURS });
   setInterval(() => void reconcileAll(), RECONCILE_INTERVAL_MS);
 
   const apiApp = createApiApp(state, {
