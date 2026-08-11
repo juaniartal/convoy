@@ -13,3 +13,11 @@ Convoy is deploying.
 
 3. Remember: Convoy runs as a single replica by design (in-memory state, no
    database in v1) — see values.yaml before changing replicaCount.
+
+4. ⚠️  Convoy has no login of its own (same tradeoff Prometheus makes) --
+   if your ingress.host is reachable from the public internet, put an
+   authenticating layer in front of it (SSO, VPN, or set apiKey below).
+   See the README's "Access control" section before going further.
+   {{- if not .Values.apiKey }}
+   apiKey is currently unset.
+   {{- end }}
