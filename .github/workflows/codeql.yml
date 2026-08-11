@@ -13,6 +13,10 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      # The analyze step's own telemetry call (GET a workflow run) needs
+      # this too -- without it the scan itself succeeds but the job still
+      # reports failure, which reads as a real problem when there isn't one.
+      actions: read
     steps:
       - uses: actions/checkout@v7
 
