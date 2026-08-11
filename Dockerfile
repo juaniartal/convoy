@@ -15,6 +15,12 @@ RUN npm run build && npm prune --omit=dev
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# Probot defaults to binding localhost (127.0.0.1) unless HOST says
+# otherwise — inside a container that's unreachable from anywhere outside
+# its own network namespace (a Kubernetes Service, a readiness probe, even
+# `docker run -p`'s own port mapping). Override the default here so every
+# consumer of this image is reachable out of the box.
+ENV HOST=0.0.0.0
 
 # Non-root by default — reduces blast radius if the container is ever
 # compromised. node:20-alpine already ships a "node" user (uid 1000).
