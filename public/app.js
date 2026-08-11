@@ -15,6 +15,13 @@ const RELEASE_WINDOW_MS = 60 * 60 * 1000;
 // needs the most attention, not just its most recent one.
 const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 
+// A repo with many concurrent branches (qa/sandbox/feature-*/...) can easily
+// have a dozen live pipelines at once — a card showing all of them by
+// default becomes a wall of text you can't scan alongside the other repos.
+// Preview the most recent few on the card; the repo's own detail page (one
+// click away) always shows the full list.
+const CARD_PREVIEW_LIMIT = 5;
+
 // --- State ---
 let currentTab = 'deploys';
 let currentFilter = 'all';
@@ -22,17 +29,14 @@ let searchQuery = '';
 let hideInactive = false;
 let showAllDeploys = false;
 let lastRuns = [];
+let installedRepos = []; // every repo the GitHub App is installed on, regardless of activity
 let lastError = null;
 let lastFetchedAt = null;
-const expandedRepos = new Set();
-const fullyExpandedRepos = new Set(); // repos where "show N more pipelines" was clicked
-const prevBuckets = new Map(); // run id -> bucket, to flash on change across polls
-
-// A repo with many concurrent branches (qa/sandbox/feature-*/...) can easily
-// have a dozen live pipelines at once — rendering all of them by default
-// turns one expanded row into a wall of cards. Show the most recent few and
-// let "show N more" reveal the rest, instead of hiding them outright.
-const PIPELINE_PREVIEW_LIMIT = 4;
+let selectedRepo = repoFromHash(); // null = grid view; otherwise a repo full name
+let favoritesOnly = false;
+const favorites = new Set(JSON.parse(localStorage.getItem('convoy-favorites') || '[]'));
+const prevBuckets = new Map(); // run id -> bucket, to flash a pipeline card on change
+const prevRepoOverall = new Map(); // repo -> overall bucket, to flash a repo card on change
 
 // --- Status vocabulary (mirrors the backend's stateOf/classify semantics) ---
 
@@ -47,7 +51,17 @@ function stateOf(run) {
   return 'queued';
 }
 
-const ICON = { success: '✓', failure: '✕', running: '●', queued: '○', skipped: '–', cancelled: '–' };
+// Small inline vectors instead of Unicode glyphs — consistent stroke width
+// and alignment across platforms/fonts, and they pick up the job-node's
+// color via currentColor rather than needing their own color rules.
+const ICON = {
+  success: '<svg viewBox="0 0 16 16" width="11" height="11"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  failure: '<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  running: '<svg viewBox="0 0 16 16" width="9" height="9"><circle cx="8" cy="8" r="6" fill="currentColor"/></svg>',
+  queued: '<svg viewBox="0 0 16 16" width="9" height="9"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  skipped: '<svg viewBox="0 0 16 16" width="11" height="7"><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  cancelled: '<svg viewBox="0 0 16 16" width="11" height="7"><line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+};
 const BADGE_LABEL = {
   success: 'Arrived',
   failure: 'Down',
@@ -95,6 +109,69 @@ function isStale(run) {
   return Date.now() - new Date(run.updatedAt).getTime() > STALE_AFTER_HOURS * 3600_000;
 }
 
+// --- Navigation: grid of repo cards is the default view; clicking one
+// drills into a dedicated page for just that repo. Backed by the URL hash
+// so it survives a refresh and works with the browser's back button. ---
+
+function repoFromHash() {
+  const m = /^#repo\/(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function openRepo(repo) {
+  location.hash = `repo/${encodeURIComponent(repo)}`;
+}
+
+function closeRepo() {
+  history.pushState('', document.title, window.location.pathname + window.location.search);
+  selectedRepo = null;
+  render();
+}
+
+window.addEventListener('hashchange', () => {
+  selectedRepo = repoFromHash();
+  render();
+});
+
+// --- Theme: the inline script in <head> already set data-theme before
+// first paint (to avoid a flash); this just keeps the toggle button's
+// label in sync and persists explicit choices. ---
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('convoy-theme', theme);
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.innerHTML = theme === 'dark' ? '<span>☀ Light mode</span>' : '<span>🌙 Dark mode</span>';
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+}
+
+// --- Favorites: which repos you personally care about most, kept in this
+// browser only (not shared with anyone else hitting the same instance). ---
+
+function toggleFavorite(repo) {
+  if (favorites.has(repo)) favorites.delete(repo);
+  else favorites.add(repo);
+  localStorage.setItem('convoy-favorites', JSON.stringify([...favorites]));
+  render();
+}
+
+function onToggleFavoritesOnly() {
+  favoritesOnly = !favoritesOnly;
+  render();
+}
+
+function starHtml(repo) {
+  const fav = favorites.has(repo);
+  return `<button class="star-btn ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite('${repo}')" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>`;
+}
+
 // --- Fetch ---
 
 async function fetchState() {
@@ -102,10 +179,11 @@ async function fetchState() {
     const params = new URLSearchParams({ view: currentTab });
     if (searchQuery) params.set('q', searchQuery);
     if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
-    const res = await fetch(`/api/state?${params}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
+    if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
+    const data = await stateRes.json();
     lastRuns = data.runs;
+    if (reposRes.ok) installedRepos = (await reposRes.json()).repos;
     lastError = null;
     lastFetchedAt = Date.now();
   } catch (err) {
@@ -118,11 +196,18 @@ function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
   prevBuckets.clear();
+  prevRepoOverall.clear();
   fetchState();
 }
 
 function setFilter(f) {
   currentFilter = f;
+  // Picking a filter always means "show me the board", so drop out of a
+  // single-repo detail page if one was open.
+  if (selectedRepo) {
+    selectedRepo = null;
+    history.pushState('', document.title, window.location.pathname + window.location.search);
+  }
   render();
 }
 
@@ -141,23 +226,8 @@ function onToggleShowAllDeploys() {
   render();
 }
 
-function toggleExpand(repo) {
-  if (expandedRepos.has(repo)) {
-    expandedRepos.delete(repo);
-    fullyExpandedRepos.delete(repo);
-  } else {
-    expandedRepos.add(repo);
-  }
-  render();
-}
-
-function showAllPipelinesFor(repo) {
-  fullyExpandedRepos.add(repo);
-  render();
-}
-
-// --- Grouping: repo-centric, ArgoCD-style — one row per repo, its
-// pipelines nested inside, instead of a flat list of individual runs. ---
+// --- Grouping: repo-centric, ArgoCD-style — one card per repo, its
+// pipelines summarized inside, instead of a flat list of individual runs. ---
 
 function scopeToCurrentRelease(runs) {
   if (!runs.length) return runs;
@@ -170,8 +240,17 @@ function currentRuns() {
   return lastRuns;
 }
 
-function groupByRepo(runs) {
+// Starts from every repo the App is installed on, not just repos that
+// happen to have a run in the current tab/filter -- a repo that's never
+// deployed (or never had a plain CI run) still belongs on the board, same
+// as a repo that's gone quiet. Only exception: an active search narrows
+// this down to matching repo names, so searching still searches.
+function groupByRepo(runs, repos) {
+  const q = searchQuery.toLowerCase().trim();
+  const baseRepos = q ? repos.filter((r) => r.fullName.toLowerCase().includes(q)) : repos;
+
   const byRepo = new Map();
+  for (const repo of baseRepos) byRepo.set(repo.fullName, []);
   for (const run of runs) {
     if (!byRepo.has(run.repo)) byRepo.set(run.repo, []);
     byRepo.get(run.repo).push(run);
@@ -179,28 +258,77 @@ function groupByRepo(runs) {
   const groups = [...byRepo.entries()].map(([repo, pipelines]) => {
     pipelines.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const buckets = pipelines.map((p) => styleBucket(stateOf(p)));
-    const overall = BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
-    const stale = pipelines.every(isStale);
-    return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0].updatedAt };
+    const overall = pipelines.length === 0 ? 'idle' : BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
+    const stale = pipelines.length > 0 && pipelines.every(isStale);
+    return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
   });
-  groups.sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
+  // Favorites float to the top regardless of activity -- that's the point
+  // of marking them, so they don't get buried under noisier repos.
+  groups.sort((a, b) => {
+    const favDiff = Number(favorites.has(b.repo)) - Number(favorites.has(a.repo));
+    return favDiff !== 0 ? favDiff : b.latestUpdatedAt.localeCompare(a.latestUpdatedAt);
+  });
   return groups;
+}
+
+// On the Deploys tab these entries are releases, not "pipelines" — the
+// Pipelines tab is the only place that word actually describes them.
+function unitLabel() {
+  return currentTab === 'deploys' ? 'deploy' : 'pipeline';
 }
 
 // --- Rendering ---
 
 function countRepoBuckets(groups) {
   const c = { arrived: 0, down: 0, rolling: 0, staged: 0, total: groups.length };
-  for (const g of groups) c[foldForCount(g.overall)]++;
+  for (const g of groups) {
+    if (g.overall === 'idle') continue; // no runs yet isn't a status to tally
+    c[foldForCount(g.overall)]++;
+  }
   return c;
 }
 
 function render() {
-  const allGroups = groupByRepo(currentRuns());
-  const visibleGroups = currentFilter === 'all' ? allGroups : allGroups.filter((g) => foldForCount(g.overall) === currentFilter);
-  renderSummary(allGroups);
-  renderProgress(allGroups);
-  renderGrid(visibleGroups);
+  const rawGroups = groupByRepo(currentRuns(), installedRepos);
+  // "Hide inactive" means exactly that -- a repo with nothing current to
+  // show (whether it never ran, or everything it has is older than the
+  // cutoff) drops off the board entirely instead of sitting there as an
+  // empty card. Detail pages still resolve normally via rawGroups, so a
+  // direct link to a hidden repo doesn't break.
+  const boardGroups = hideInactive ? rawGroups.filter((g) => g.pipelines.length > 0) : rawGroups;
+  renderSummary(boardGroups);
+  renderProgress(boardGroups);
+  renderSidebarFilters(boardGroups);
+  if (selectedRepo) {
+    renderDetail(rawGroups.find((g) => g.repo === selectedRepo));
+  } else {
+    let visibleGroups =
+      currentFilter === 'all' ? boardGroups : boardGroups.filter((g) => foldForCount(g.overall) === currentFilter);
+    if (favoritesOnly) visibleGroups = visibleGroups.filter((g) => favorites.has(g.repo));
+    renderGrid(visibleGroups);
+  }
+}
+
+function renderSidebarFilters(groups) {
+  const c = countRepoBuckets(groups);
+  const el = document.getElementById('sidebarFilters');
+  if (el) {
+    el.innerHTML = [
+      ['all', 'All', c.total],
+      ['down', 'Down', c.down],
+      ['rolling', 'Rolling', c.rolling],
+      ['staged', 'Staged', c.staged],
+    ]
+      .map(
+        ([f, label, count]) =>
+          `<button class="sidebar-filter ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">
+            <span>${label}</span><span class="count">${count}</span>
+          </button>`,
+      )
+      .join('');
+  }
+  const favBtn = document.getElementById('favToggle');
+  if (favBtn) favBtn.classList.toggle('active', favoritesOnly);
 }
 
 function renderSummary(groups) {
@@ -223,18 +351,6 @@ function renderSummary(groups) {
     currentTab === 'deploys'
       ? `${c.total} repos · ${showAllDeploys ? 'all deploys' : 'current release'}`
       : `${c.total} repos`;
-
-  const filters = [
-    ['all', 'All'],
-    ['down', 'Down'],
-    ['rolling', 'Rolling'],
-    ['staged', 'Staged'],
-  ]
-    .map(
-      ([f, label]) =>
-        `<button class="ghost ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">${label}</button>`,
-    )
-    .join('');
 
   const deployToggle =
     currentTab === 'deploys'
@@ -259,7 +375,6 @@ function renderSummary(groups) {
           oninput="onSearchInput(this.value)">
       </div>
     </div>
-    <div class="filter-row">${filters}</div>
   `;
 
   if (hadFocus) {
@@ -296,7 +411,7 @@ function pipelineHtml(run) {
       return `
         <div class="job">
           <div class="job-node ${jb}">${ICON[js]}</div>
-          <div class="job-name">${j.name} <span class="dur" ${startedAttr}>${fmtDur(j.startedAt, j.completedAt)}</span></div>
+          <div class="job-name">${escapeHtml(j.name)} <span class="dur" ${startedAttr}>${fmtDur(j.startedAt, j.completedAt)}</span></div>
         </div>`;
     })
     .join('');
@@ -309,7 +424,7 @@ function pipelineHtml(run) {
 
   const runStartedAttr = label === 'running' ? `data-started="${run.createdAt}"` : '';
   const runDur = fmtDur(run.createdAt, label === 'running' ? null : run.updatedAt);
-  const actorLine = run.actor ? `<span class="run-actor">by ${run.actor}</span>` : '';
+  const actorLine = run.actor ? `<span class="run-actor">by ${escapeHtml(run.actor)}</span>` : '';
 
   // Branch/tag is the heading, not the workflow name — plenty of real setups
   // trigger the exact same workflow ("Containerize and Deploy") from every
@@ -319,8 +434,8 @@ function pipelineHtml(run) {
     <div class="pipeline ${bucket} ${staleClass} ${flashClass}">
       <div class="pipeline-head">
         <div>
-          <div class="pipeline-name">${run.headBranch ?? run.event}</div>
-          <div class="run-ref">${run.workflowName} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
+          <div class="pipeline-name">${escapeHtml(run.headBranch ?? run.event)}</div>
+          <div class="run-ref">${escapeHtml(run.workflowName)} · <span class="dur" ${runStartedAttr}>${runDur}</span> ${actorLine}</div>
         </div>
         <div class="run-actions">
           <span class="badge ${bucket}">${BADGE_LABEL[label]}</span>
@@ -333,54 +448,99 @@ function pipelineHtml(run) {
     </div>`;
 }
 
-function repoRowHtml(group) {
+// A compact row inside a repo card — just enough to recognize which
+// pipeline it is and its current state at a glance. Full detail (jobs,
+// duration, actor, link) lives on the repo's own detail page.
+function cardPipelineRowHtml(run) {
+  const b = styleBucket(stateOf(run));
+  const ref = run.headBranch ?? run.event;
+  return `
+    <div class="card-pipeline-row ${b}">
+      <div class="card-pipeline-text">
+        <div class="card-pipeline-ref">${escapeHtml(ref)}</div>
+        <div class="card-pipeline-workflow muted">${escapeHtml(run.workflowName)}</div>
+      </div>
+      <span class="badge ${b} small">${BADGE_LABEL[stateOf(run)]}</span>
+    </div>`;
+}
+
+function repoCardHtml(group) {
   const { repo, pipelines, overall, stale } = group;
-  const expanded = expandedRepos.has(repo);
+  const label = unitLabel();
 
-  const pips = pipelines
-    .map((p) => {
-      const b = styleBucket(stateOf(p));
-      const ref = p.headBranch ?? p.event;
-      return `<span class="pip ${b}" title="${ref} (${p.workflowName}): ${BADGE_LABEL[stateOf(p)]}"></span>`;
-    })
-    .join('');
+  const prevOverall = prevRepoOverall.get(repo);
+  const flashClass = prevOverall && prevOverall !== overall ? `flash-${overall}` : '';
+  prevRepoOverall.set(repo, overall);
 
-  // pipelines is already sorted most-recently-updated first, so the preview
-  // is the N most current pipelines, not an arbitrary slice.
-  const showAll = fullyExpandedRepos.has(repo);
-  const visiblePipelines = showAll ? pipelines : pipelines.slice(0, PIPELINE_PREVIEW_LIMIT);
-  const hiddenCount = pipelines.length - visiblePipelines.length;
-  // On the Deploys tab these entries are releases, not "pipelines" — the
-  // Pipelines tab is the only place that word actually describes them.
-  const unitLabel = currentTab === 'deploys' ? 'deploy' : 'pipeline';
-  const showMore = hiddenCount > 0
-    ? `<button class="ghost show-more" onclick="event.stopPropagation(); showAllPipelinesFor('${repo}')">Show ${hiddenCount} more ${unitLabel}${hiddenCount === 1 ? '' : 's'}</button>`
-    : '';
+  if (pipelines.length === 0) {
+    return `
+      <div class="repo-card ${overall} ${flashClass}" onclick="openRepo('${repo}')">
+        <div class="repo-card-head">
+          <span class="repo-dot idle"></span>
+          <span class="repo-name">${repo}</span>
+          ${starHtml(repo)}
+          <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+        </div>
+        <div class="repo-card-footer muted">No ${label}s have run yet.</div>
+      </div>`;
+  }
 
-  const detail = expanded
-    ? `<div class="repo-detail">${visiblePipelines.map(pipelineHtml).join('')}${showMore}</div>`
-    : '';
+  const preview = pipelines.slice(0, CARD_PREVIEW_LIMIT);
+  const hiddenCount = pipelines.length - preview.length;
+  const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
 
   return `
-    <div class="repo-row ${stale ? 'stale' : ''} ${expanded ? 'expanded' : ''}">
-      <div class="repo-row-head" onclick="toggleExpand('${repo}')">
-        <span class="expand-caret">${expanded ? '▾' : '▸'}</span>
+    <div class="repo-card ${overall} ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${repo}')">
+      <div class="repo-card-head">
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
-        <span class="repo-pips">${pips}</span>
-        <span class="repo-summary muted">${pipelines.length} ${unitLabel}${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</span>
+        ${starHtml(repo)}
         <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
-      ${detail}
+      <div class="card-pipelines">${preview.map(cardPipelineRowHtml).join('')}</div>
+      ${more}
+      <div class="repo-card-footer muted">${pipelines.length} ${label}${pipelines.length === 1 ? '' : 's'} · updated ${fmtAgo(group.latestUpdatedAt)}</div>
     </div>`;
 }
 
 function renderGrid(groups) {
   const grid = document.getElementById('grid');
-
+  grid.className = 'repo-grid';
   grid.innerHTML =
-    groups.map(repoRowHtml).join('') ||
+    groups.map(repoCardHtml).join('') ||
     `<div class="empty-msg">${lastRuns.length ? 'Nothing matches this filter.' : 'No runs seen yet — waiting on webhooks / first reconciliation pass.'}</div>`;
+
+  setTimeout(() => {
+    grid.querySelectorAll('[class*="flash-"]').forEach((el) => {
+      el.className = el.className.replace(/\bflash-[a-z]+\b/g, '').trim();
+    });
+  }, 1500);
+}
+
+// The dedicated single-repo page — always shows every pipeline in full
+// (jobs, duration, actor, link), no preview cap. This is the "click in to
+// see everything running or failed for just this repo" view.
+function renderDetail(group) {
+  const grid = document.getElementById('grid');
+  grid.className = '';
+
+  const header = `
+    <div class="detail-header">
+      <button class="ghost" onclick="closeRepo()">← All repos</button>
+      ${group ? `<span class="repo-name">${group.repo}</span>${starHtml(group.repo)}<a href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
+    </div>`;
+
+  if (!group) {
+    grid.innerHTML = `${header}<div class="empty-msg">This repo has no ${unitLabel()}s in the current view.</div>`;
+    return;
+  }
+
+  if (group.pipelines.length === 0) {
+    grid.innerHTML = `${header}<div class="empty-msg">No ${unitLabel()}s have run yet.</div>`;
+    return;
+  }
+
+  grid.innerHTML = `${header}<div class="repo-detail">${group.pipelines.map(pipelineHtml).join('')}</div>`;
 
   setTimeout(() => {
     grid.querySelectorAll('[class*="flash-"]').forEach((el) => {
@@ -393,6 +553,18 @@ function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
+// Branch/tag names, workflow names, and job names come from GitHub data
+// that this app doesn't control -- git ref names allow characters like
+// < > " that would otherwise break out of these template strings and
+// inject markup. Everything rendered as text (not an attribute) goes
+// through this before it reaches innerHTML.
+function escapeHtml(s) {
+  return String(s ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+}
+
 function tick() {
   document.querySelectorAll('.dur[data-started]').forEach((el) => {
     el.textContent = fmtDur(el.dataset.started, null);
@@ -403,6 +575,7 @@ function tick() {
   }
 }
 
+applyTheme(currentTheme());
 fetchState();
 setInterval(fetchState, POLL_MS);
 setInterval(tick, 1000);
