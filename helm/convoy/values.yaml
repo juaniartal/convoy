@@ -1,9 +1,16 @@
 # Default values for the Convoy Helm chart.
 
 image:
-  repository: ghcr.io/YOUR_ORG_OR_USER/convoy
+  repository: ghcr.io/juaniartal/convoy
   tag: latest
   pullPolicy: IfNotPresent
+
+# Names of existing imagePullSecrets (type kubernetes.io/dockerconfigjson) —
+# needed if image.repository is a private registry. This chart does not
+# create the secret itself; create it once with e.g.
+# `kubectl create secret docker-registry <name> --docker-server=... --docker-username=... --docker-password=...`
+# and list its name here.
+imagePullSecrets: []
 
 # Convoy keeps pipeline state in process memory, not a database — running
 # more than one replica means each pod holds a different partial view, and

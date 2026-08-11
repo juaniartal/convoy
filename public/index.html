@@ -4,52 +4,81 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Convoy — Release Board</title>
+<script>
+// Runs before the stylesheet so the page paints in the right theme the
+// first time, instead of flashing dark then switching to light (or vice
+// versa). Falls back to the OS preference until the user picks explicitly.
+(function () {
+  var stored = localStorage.getItem('convoy-theme');
+  var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+})();
+</script>
 <link rel="stylesheet" href="./fonts/fonts.css">
 <link rel="stylesheet" href="./styles.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23A879FF'/%3E%3Cstop offset='1' stop-color='%238A54F0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='1' y='1' width='126' height='126' rx='30' fill='%23140F28' stroke='%232A2247' stroke-width='2'/%3E%3Cg fill='%237A45E0'%3E%3Cpath d='M40 46 L56 48 L46 18 Z'/%3E%3Cpath d='M88 46 L72 48 L82 18 Z'/%3E%3C/g%3E%3Ccircle cx='64' cy='72' r='46' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='80' cy='70' r='27' fill='%236E3ED6'/%3E%3Ccircle cx='48' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='80' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='51' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='77' cy='72' r='11' fill='%23241C3B'/%3E%3Ccircle cx='55' cy='67' r='4' fill='%23fff'/%3E%3Ccircle cx='81' cy='67' r='4' fill='%23fff'/%3E%3Cpath d='M57 88 L71 88 L64 101 Z' fill='%23F5B740'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect x='1' y='1' width='126' height='126' rx='22' fill='%23141419' stroke='%2326262e' stroke-width='2'/%3E%3Cg fill='%236d28d9'%3E%3Cpath d='M38 44 L58 50 L45 14 Z'/%3E%3Cpath d='M90 44 L70 50 L83 14 Z'/%3E%3C/g%3E%3Ccircle cx='64' cy='72' r='46' fill='%238b5cf6' stroke='%236d28d9' stroke-width='2'/%3E%3Ccircle cx='46' cy='70' r='28' fill='%236d28d9'/%3E%3Ccircle cx='82' cy='70' r='28' fill='%236d28d9'/%3E%3Ccircle cx='46' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='82' cy='70' r='22' fill='%23fff'/%3E%3Ccircle cx='49' cy='72' r='11.5' fill='%23141419'/%3E%3Ccircle cx='79' cy='72' r='11.5' fill='%23141419'/%3E%3Ccircle cx='53' cy='66' r='4' fill='%23fff'/%3E%3Ccircle cx='83' cy='66' r='4' fill='%23fff'/%3E%3Cpath d='M64 84 L75 97 L64 110 L53 97 Z' fill='%23d99a3d' stroke='%23b97f27' stroke-width='1.5'/%3E%3C/svg%3E">
 </head>
 <body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-  <linearGradient id="gbody" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#A879FF"/><stop offset="1" stop-color="#8A54F0"/>
-  </linearGradient>
   <symbol id="owlhead" viewBox="0 0 128 128">
-    <g fill="#7A45E0"><path d="M40 46 L56 48 L46 18 Z"/><path d="M88 46 L72 48 L82 18 Z"/></g>
-    <circle cx="64" cy="72" r="46" fill="url(#gbody)"/>
-    <circle cx="48" cy="70" r="27" fill="#6E3ED6"/><circle cx="80" cy="70" r="27" fill="#6E3ED6"/>
-    <circle cx="48" cy="70" r="22" fill="#fff"/><circle cx="80" cy="70" r="22" fill="#fff"/>
-    <circle cx="51" cy="72" r="11" fill="#241C3B"/><circle cx="77" cy="72" r="11" fill="#241C3B"/>
-    <circle cx="55" cy="67" r="4" fill="#fff"/><circle cx="81" cy="67" r="4" fill="#fff"/>
-    <path d="M57 88 L71 88 L64 101 Z" fill="#F5B740"/>
+    <g fill="#6d28d9"><path d="M38 44 L58 50 L45 14 Z"/><path d="M90 44 L70 50 L83 14 Z"/></g>
+    <circle cx="64" cy="72" r="46" fill="#8b5cf6" stroke="#6d28d9" stroke-width="2"/>
+    <circle cx="46" cy="70" r="28" fill="#6d28d9"/><circle cx="82" cy="70" r="28" fill="#6d28d9"/>
+    <circle cx="46" cy="70" r="22" fill="#fff"/><circle cx="82" cy="70" r="22" fill="#fff"/>
+    <circle cx="49" cy="72" r="11.5" fill="#141419"/><circle cx="79" cy="72" r="11.5" fill="#141419"/>
+    <circle cx="53" cy="66" r="4" fill="#fff"/><circle cx="83" cy="66" r="4" fill="#fff"/>
+    <path d="M64 84 L75 97 L64 110 L53 97 Z" fill="#d99a3d" stroke="#b97f27" stroke-width="1.5" stroke-linejoin="round"/>
   </symbol>
 </defs></svg>
 
-<div class="topbar">
-  <div class="brand">
-    <svg width="32" height="32" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
-    <div>
-      <span class="word">CONVOY</span>
-      <div class="sub">Every pipeline, one screen, live.</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <svg width="28" height="28" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+      <div>
+        <span class="word">CONVOY</span>
+        <div class="sub">Every pipeline, live.</div>
+      </div>
     </div>
-  </div>
-  <div class="accent-line"></div>
+
+    <nav class="sidebar-nav">
+      <button class="active" onclick="closeRepo()">Dashboard</button>
+      <a href="https://github.com/juaniartal/convoy" target="_blank" rel="noopener">Documentation</a>
+    </nav>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Favorites</div>
+      <button class="sidebar-filter" id="favToggle" onclick="onToggleFavoritesOnly()">
+        <span>★ Favorites only</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Filter</div>
+      <div id="sidebarFilters"></div>
+    </div>
+
+    <button class="sidebar-filter theme-toggle" id="themeToggleBtn" onclick="toggleTheme()"></button>
+  </aside>
+
+  <main class="main">
+    <div class="tabs">
+      <button class="tab active" data-tab="deploys" onclick="setTab('deploys')">Deploys</button>
+      <button class="tab" data-tab="pipelines" onclick="setTab('pipelines')">Pipelines</button>
+    </div>
+
+    <div class="progress-track" id="progressTrack"></div>
+    <div class="summary" id="summary"></div>
+    <div id="grid"></div>
+
+    <footer>
+      <svg width="20" height="20" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+      <span class="word">CONVOY</span>
+      <span class="mono">— real-time GitHub Actions board</span>
+    </footer>
+  </main>
 </div>
-
-<div class="tabs">
-  <button class="tab active" data-tab="deploys" onclick="setTab('deploys')">Deploys</button>
-  <button class="tab" data-tab="pipelines" onclick="setTab('pipelines')">Pipelines</button>
-</div>
-
-<div class="progress-track" id="progressTrack"></div>
-<div class="summary" id="summary"></div>
-<div class="grid" id="grid"></div>
-
-<footer>
-  <svg width="20" height="20" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
-  <span class="word">CONVOY</span>
-  <span class="mono">— real-time GitHub Actions board</span>
-</footer>
 
 <script src="./app.js"></script>
 </body>
