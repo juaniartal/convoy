@@ -44,7 +44,9 @@
   .hero h1 { font-family: var(--sans); font-weight: 800; font-size: clamp(32px, 5.4vw, 50px);
     line-height: 1.08; margin: 18px 0 14px; letter-spacing: -0.02em; }
   .hero p.lead { font-size: 16.5px; color: var(--fog); max-width: 46ch; margin: 0 auto 30px; }
-  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .trust-line { font-size: 12.5px; color: var(--fog); margin-bottom: 40px; }
+  .trust-line span { margin: 0 2px; }
   .btn { font-family: var(--sans); font-weight: 600; font-size: 14px; padding: 11px 22px;
     border-radius: 7px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
   .btn.primary { background: var(--signal); color: #fff; }
@@ -83,6 +85,11 @@
   .how-step p { font-size: 12.5px; color: var(--fog); line-height: 1.55; }
   .how-arrow { color: var(--line); font-size: 20px; padding-top: 13px; flex-shrink: 0; font-weight: 700; }
 
+  /* Convoy's owl, investigating -- a magnifying glass held up to one eye,
+     playing on "Convoy watches your pipelines closely". Not functional --
+     aria-hidden. */
+  .owl-detective { display: block; margin: 0 auto 8px; filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45)); }
+
   .install-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; }
   .install-tabs button { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 18px;
     border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fog); cursor: pointer; }
@@ -93,15 +100,36 @@
   .install-panel { display: none; }
   .install-panel.active { display: block; }
 
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
-  .feature-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--inset);
-    border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
-    color: var(--signal); margin-bottom: 14px; }
-  .feature h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
-  .feature p { font-size: 13px; color: var(--fog); line-height: 1.6; }
+  /* align-items: start -- otherwise grid stretches every card to match the
+     tallest one in its row, and short-text cards end up with a slab of
+     dead space at the bottom that reads as "expanded for no reason". */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+  /* One color accent per card (the icon) is enough -- a full-width colored
+     top border on all six repeated the same stripe six times and read as
+     one flat slab instead of six distinct cards. */
+  .feature { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 19px 20px; transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; }
+  .feature:hover { transform: translateY(-3px); box-shadow: 0 14px 28px -16px rgba(0, 0, 0, 0.55);
+    border-color: var(--fog); }
+  .feature-icon { width: 34px; height: 34px; border-radius: 9px;
+    background: radial-gradient(circle at 30% 25%, var(--signal), var(--signal-deep));
+    display: flex; align-items: center; justify-content: center; color: #fff; margin-bottom: 12px;
+    box-shadow: 0 6px 14px -7px rgba(139, 92, 246, 0.5); }
+  .feature-icon svg { width: 16px; height: 16px; }
+  .feature h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 6px; }
+  .feature p { font-size: 12.5px; color: var(--fog); line-height: 1.55; }
 
   .why { max-width: 680px; margin: 0 auto 8px; text-align: center; color: var(--fog); font-size: 15px; }
+
+  .maker-card { max-width: 620px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 28px; display: flex; gap: 20px; align-items: flex-start; }
+  .maker-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--inset);
+    border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; overflow: hidden; }
+  .maker-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .maker-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .maker-card p { font-size: 13.5px; color: var(--fog); line-height: 1.6; margin-bottom: 12px; }
+  .maker-links { display: flex; gap: 18px; font-size: 13px; font-weight: 600; }
 
   footer { padding: 40px 0 60px; }
   footer .wrap { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -115,6 +143,7 @@
     header nav { display: none; }
     .how-steps { flex-direction: column; align-items: center; }
     .how-arrow { transform: rotate(90deg); }
+    .maker-card { flex-direction: column; align-items: center; text-align: center; }
   }
 </style>
 </head>
@@ -140,6 +169,7 @@
       <a href="#how">How it works</a>
       <a href="#install">Install</a>
       <a href="#features">Features</a>
+      <a href="#about">About</a>
       <a href="https://github.com/juaniartal/convoy">GitHub</a>
     </nav>
   </div>
@@ -152,15 +182,15 @@
       <span class="eyebrow">Self-hosted · Open source · MIT</span>
       <h1>Every pipeline,<br>one screen, live.</h1>
       <p class="lead">
-        Convoy is a self-hosted GitHub Actions board for your whole organization —
-        think ArgoCD, but for CI pipelines. It splits what's happening into
-        production deploys and everything else, plus a live summary of how
-        healthy your org actually is right now.
+        A self-hosted GitHub Actions board for your whole org — think ArgoCD,
+        but for CI. Every repo, every run, live, split into deploys and
+        everything else.
       </p>
       <div class="cta-row">
         <a class="btn primary" href="https://github.com/juaniartal/convoy">View on GitHub</a>
         <a class="btn ghost" href="#install">Quick install ↓</a>
       </div>
+      <p class="trust-line"><span>Self-hosted</span>·<span>Webhooks, not polling</span>·<span>MIT license</span></p>
       <div class="browser-frame">
         <div class="browser-bar">
           <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
@@ -214,19 +244,23 @@
     </div>
     <div class="why">
       <p>
-        Watching a release roll out across dozens of repos usually means opening the
-        Actions tab of every single one by hand, refreshing each to see what shipped
-        clean and what silently broke. Convoy installs a GitHub App on your org once
-        and puts every workflow run — across every repo — on one live board, split into
-        <strong style="color:var(--text)">Deploys</strong> (real releases) and
-        <strong style="color:var(--text)">Pipelines</strong> (everything else), plus an
-        <strong style="color:var(--text)">Overview</strong> that answers the one question
-        that actually matters at a glance: is anything down right now?
+        Watching a release roll out across dozens of repos usually means a
+        browser full of Actions tabs, refreshed by hand. Convoy installs a
+        GitHub App once and puts every run on one board —
+        <strong style="color:var(--text)">Deploys</strong>,
+        <strong style="color:var(--text)">Pipelines</strong>, and an
+        <strong style="color:var(--text)">Overview</strong> that answers the
+        only question that matters: is anything down right now?
       </p>
     </div>
   </section>
 
   <section id="install">
+    <svg class="owl-detective" width="112" height="112" viewBox="0 0 170 170" aria-hidden="true">
+      <use href="#owlhead" x="8" y="20" width="128" height="128"/>
+      <circle cx="146" cy="86" r="20" fill="rgba(255,255,255,0.05)" stroke="var(--signal)" stroke-width="5"/>
+      <line x1="160" y1="100" x2="166" y2="135" stroke="var(--line)" stroke-width="8" stroke-linecap="round"/>
+    </svg>
     <div class="sec-h">
       <h2>Install</h2>
       <p>Self-hosted only — your CI data never leaves your own infrastructure.</p>
@@ -269,35 +303,35 @@ docker run -p 3000:3000 \
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
         </div>
         <h3>Webhooks, not polling</h3>
-        <p>A GitHub App receives <code>workflow_run</code>/<code>workflow_job</code> events directly. Polling only runs as a slow safety net for missed deliveries — it scales to hundreds of repos without hammering the API.</p>
+        <p>GitHub pushes events directly to your instance. Polling only exists as a safety net — scales to hundreds of repos without hammering the API.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2 4 5.5v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10v-6L12 2z"/></svg>
         </div>
         <h3>Minimal permissions</h3>
-        <p>The GitHub App requests <code>actions: read</code> and <code>metadata: read</code> — nothing else. It can't read file contents, can't write anything, can't touch your workflows.</p>
+        <p><code>actions: read</code> and <code>metadata: read</code>. Nothing else. Can't read file contents, can't write, can't touch your workflows.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>
         </div>
         <h3>Self-hosted, always</h3>
-        <p>Ships as a Docker image and a Helm chart. There is no Convoy-operated backend — your CI data never leaves your own cluster.</p>
+        <p>Docker image, Helm chart. No Convoy-operated backend, ever — your CI data never leaves your own cluster.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M20.6 12 12.6 20a2 2 0 0 1-2.8 0l-6.8-6.8a2 2 0 0 1 0-2.8L11 2.6l9.6 9.4z"/><circle cx="8" cy="8" r="1.6"/></svg>
         </div>
         <h3>Deploy vs. pipeline</h3>
-        <p>A run is a deploy if it's triggered by a release or a version-shaped tag. Everything else is a pipeline. Per-repo overrides handle the exceptions.</p>
+        <p>A release or version tag is a deploy. Everything else is a pipeline. Per-repo overrides handle the exceptions.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.2"/><path d="M10.6 12.4 19 4M15.5 8l2.7 2.7M12.2 11.3l2.2 2.2"/></svg>
         </div>
         <h3>Bring your own auth</h3>
-        <p>No "Login with GitHub" to build or trust. Gate the dashboard with your existing SSO/VPN/ingress, or a shared password — same tradeoff Prometheus makes.</p>
+        <p>No "Login with GitHub" to build or trust. Gate it with your existing SSO/VPN/ingress — same call Prometheus makes.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">
@@ -305,6 +339,30 @@ docker run -p 3000:3000 \
         </div>
         <h3>MIT, free, forever</h3>
         <p>No paid tier, no telemetry phoning home, no vendor lock-in. Fork it, run it, change it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="sec-h">
+      <h2>Built by one person, in the open</h2>
+      <p>No company behind this, no roadmap dictated by a board.</p>
+    </div>
+    <div class="maker-card">
+      <div class="maker-avatar">
+        <svg width="40" height="40" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+      </div>
+      <div>
+        <h3>Juan Ignacio</h3>
+        <p>
+          I built Convoy because release day meant 40 open Actions tabs,
+          refreshed by hand. It's free, MIT-licensed, and I run it myself —
+          if something's broken, tell me and I'll actually fix it.
+        </p>
+        <div class="maker-links">
+          <a href="https://www.linkedin.com/in/juanignaciodev/" target="_blank" rel="noopener">LinkedIn ↗</a>
+          <a href="https://github.com/juaniartal" target="_blank" rel="noopener">GitHub ↗</a>
+        </div>
       </div>
     </div>
   </section>
