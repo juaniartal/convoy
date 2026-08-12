@@ -53,7 +53,7 @@ body {
 }
 .sidebar-filter:hover { background: var(--inset); color: var(--text); }
 .sidebar-filter.active { background: var(--signal); color: #fff; }
-.sidebar-filter .count { font-family: var(--mono); font-size: 11px; }
+.sidebar-filter .count { font-family: var(--mono); font-size: 12px; font-weight: 700; }
 .theme-toggle { margin-top: auto; }
 
 /* Tabs */
@@ -74,6 +74,8 @@ button, select, input {
 button.ghost, select.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); font-weight: 500; }
 button.ghost:hover { border-color: var(--fog); }
 button.ghost.active { background: var(--signal); border-color: var(--signal); color: #fff; font-weight: 700; }
+button.ghost .spin { display: inline-block; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 input.search {
   background: var(--inset); border: 1px solid var(--line); color: var(--text);
   font-weight: 400; font-family: var(--mono); min-width: 220px;
@@ -106,8 +108,8 @@ input.search::placeholder { color: var(--fog); }
 .live-dot.error { background: var(--down); }
 @keyframes dotBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
-.pill { padding: 3px 10px; border-radius: 4px; background: var(--inset); font-weight: 600;
-  font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); }
+.pill { padding: 4px 11px; border-radius: 4px; background: var(--inset); font-weight: 700;
+  font-family: var(--mono); font-size: 13px; border: 1px solid var(--line); }
 .pill.green { color: var(--arrived); } .pill.red { color: var(--down); }
 .pill.yellow { color: var(--rolling); } .pill.gray { color: var(--fog); }
 
@@ -117,15 +119,15 @@ input.search::placeholder { color: var(--fog); }
    and drops this grid layout — see .detail-header below). */
 .empty-msg { padding: 40px; text-align: center; color: var(--fog); font-size: 13px; grid-column: 1 / -1; }
 
-.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 
 /* Left border echoes the repo's overall status — the same "colored edge"
    signal ArgoCD's own app cards use — so a row of cards reads as a strip
    of traffic lights even before you read any text. idle (no runs yet)
    deliberately gets no accent color; there's nothing to flag. */
 .repo-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line);
-  border-radius: 7px; padding: 14px 16px; cursor: pointer; display: flex; flex-direction: column;
-  gap: 12px; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
+  border-radius: 9px; padding: 16px 18px; cursor: pointer; display: flex; flex-direction: column;
+  gap: 13px; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
 /* Only the non-accent sides change on hover — the status-colored left
    border stays put so hovering doesn't wash out the one signal that matters. */
 .repo-card:hover { border-top-color: var(--fog); border-right-color: var(--fog); border-bottom-color: var(--fog);
@@ -147,9 +149,9 @@ input.search::placeholder { color: var(--fog); }
 .repo-dot.staged { background: var(--staged); }
 .repo-dot.pulled { background: var(--pulled); }
 .repo-dot.idle { background: var(--fog); }
-.repo-name { font-family: var(--mono); font-weight: 600; font-size: 12.5px; word-break: break-all; }
+.repo-name { font-family: var(--mono); font-weight: 600; font-size: 14px; word-break: break-all; }
 .repo-card-head .repo-name { flex: 1; }
-.repo-card-footer { font-size: 11px; }
+.repo-card-footer { font-size: 11.5px; }
 
 .star-btn { background: none; border: none; padding: 0; font-size: 15px; line-height: 1;
   color: var(--fog); cursor: pointer; flex-shrink: 0; }
@@ -228,8 +230,53 @@ input.search::placeholder { color: var(--fog); }
 .job-progress { font-family: var(--mono); font-size: 10px; color: var(--fog); margin-top: 8px; }
 .msg { font-size: 11px; color: var(--fog); margin-top: 6px; }
 a { color: var(--signal); text-decoration: none; font-size: 13px; } a:hover { text-decoration: underline; }
+/* Bigger, easier-to-hit target for the "open on GitHub" icon links --
+   these are icon-only, so an underline on hover reads as a rendering
+   glitch rather than a link state; a color shift + subtle background
+   communicates "clickable" better here. */
+.ext-link { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 5px; font-size: 15px; color: var(--fog); flex-shrink: 0; }
+.ext-link:hover { color: var(--signal); background: var(--inset); text-decoration: none; }
 
 footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line);
   display: flex; align-items: center; gap: 10px; color: var(--fog); font-size: 12px; }
 footer .word { font-size: 13px; }
 footer .mono { font-family: var(--mono); }
+
+/* Overview — ArgoCD-style summary page: a stat list plus one donut per
+   category, so "what portion is down right now" is a glance, not a scan. */
+.overview-grid { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; padding-top: 4px; }
+
+.overview-stats { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 22px; min-width: 200px; display: flex; flex-direction: column; gap: 12px; }
+.overview-stats-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fog); font-weight: 700; margin-bottom: 2px; }
+.overview-stat { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.overview-stat-spacer { width: 8px; height: 8px; flex-shrink: 0; }
+.overview-stat-label { flex: 1; color: var(--fog); }
+.overview-stat-value { font-family: var(--mono); font-weight: 700; }
+
+.donut-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 20px 24px 22px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+.donut-title { font-size: 13px; font-weight: 700; align-self: flex-start; }
+
+.donut-wrap { position: relative; width: 172px; height: 172px; flex-shrink: 0; }
+.donut { width: 100%; height: 100%; border-radius: 50%; position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06), 0 10px 24px -10px rgba(0, 0, 0, 0.45); }
+/* Glossy highlight -- purely decorative, gives the flat conic-gradient a
+   sense of depth instead of reading as a single flat sticker of color. */
+.donut::after { content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.22), transparent 55%); }
+:root[data-theme="light"] .donut::after { background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.5), transparent 55%); }
+
+.donut-hole { position: absolute; inset: 27%; border-radius: 50%; background: var(--panel);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--line); }
+.donut-hole-value { font-family: var(--mono); font-size: 24px; font-weight: 800; line-height: 1; }
+.donut-hole-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--fog); margin-top: 5px; }
+
+.donut-legend { display: flex; flex-direction: column; gap: 7px; align-self: stretch; }
+.donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fog); }
+.donut-legend-item .repo-dot { animation: none; width: 9px; height: 9px; }
