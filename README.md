@@ -9,11 +9,13 @@ organization. Think ArgoCD, but for GitHub Actions runs instead of
 Kubernetes deployments.
 
 Convoy installs a GitHub App on your org (or just your own account) and
-shows every repo's workflow runs on one screen, split into two views:
+shows every repo's workflow runs on one screen, split into three views:
 
 - **Deploys** — runs triggered by a production release (a version tag, or a
   published GitHub Release)
 - **Pipelines** — everything else (main, qa, feature/*, bugfix/*, whatever)
+- **Overview** — an ArgoCD-style summary page: what portion of your repos
+  are healthy vs. down right now, one donut chart per view
 
 Updates come in through GitHub webhooks, not polling. That's the part that
 lets it scale to hundreds of repos without hammering the GitHub API.
@@ -116,11 +118,35 @@ A run counts as a **deploy** if:
 - it was triggered by publishing a GitHub Release, or
 - it was a `push` whose ref looks like a version tag (`v1.2.3`, `1.2.3-beta`, that kind of thing)
 
-Everything else is a **pipeline**. If your repo doesn't follow that
-convention — say it deploys by merging to a `production` branch instead of
-tagging — add an override in `convoy.yaml`. See `convoy.yaml.example` for
-the three override strategies (branch-based, tag-pattern, workflow-name),
-plus an `excludeRepos` list for archived or irrelevant repos.
+Everything else is a **pipeline** — including pushes to long-lived
+environment branches like `develop` or `qa`, even if that push technically
+triggers a real deployment somewhere. That's intentional: "Deploy" is meant
+to answer "did we ship a real release", not "did a file get copied
+somewhere". A feature branch merged into `qa` isn't a release just because
+the job that runs is *named* deploy.
+
+The default (tag-shaped ref = deploy) already covers the common setup —
+tag `v1.2.3`, deploy, done — with zero config. You only need an override
+in `convoy.yaml` when there's genuinely no other signal for "this is a
+real release":
+
+- **You tag releases, but also deploy on every push to some branches**
+  (`develop`/`qa`/`main` as environments, prod cut from a tag) — no
+  override needed, the default already gets this right; branch pushes to
+  those environments correctly stay as pipelines.
+- **You have no tags at all, and production *is* a long-lived branch** —
+  e.g. merging to `main` deploys straight to prod, nothing ever gets
+  tagged. Here the branch itself is the only signal, so add:
+  ```yaml
+  overrides:
+    - repo: your-org/your-repo
+      strategy: branch
+      deployBranches: [main]
+  ```
+
+See `convoy.yaml.example` for the three override strategies (branch-based,
+tag-pattern, workflow-name), plus an `excludeRepos` list for archived or
+irrelevant repos.
 
 ## Access control
 
