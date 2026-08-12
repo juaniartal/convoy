@@ -1,0 +1,39 @@
+name: Bug report
+description: Something isn't working the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Convoy version / image tag
+    validations:
+      required: false
+  - type: dropdown
+    id: deploy-method
+    attributes:
+      label: How are you running Convoy?
+      options:
+        - Helm (Kubernetes)
+        - Docker
+        - npm run dev (local)
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact anything sensitive (App ID/private key/webhook secret are never in logs, but double-check).
+      render: shell
