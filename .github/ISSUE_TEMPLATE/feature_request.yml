@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest something Convoy should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do today that Convoy doesn't help with?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you want instead?
+    validations:
+      required: false

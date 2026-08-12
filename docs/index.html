@@ -153,8 +153,9 @@
       <h1>Every pipeline,<br>one screen, live.</h1>
       <p class="lead">
         Convoy is a self-hosted GitHub Actions board for your whole organization —
-        think ArgoCD, but for CI pipelines. It splits what's happening into two views:
-        production deploys, and everything else.
+        think ArgoCD, but for CI pipelines. It splits what's happening into
+        production deploys and everything else, plus a live summary of how
+        healthy your org actually is right now.
       </p>
       <div class="cta-row">
         <a class="btn primary" href="https://github.com/juaniartal/convoy">View on GitHub</a>
@@ -207,13 +208,20 @@
   </section>
 
   <section>
+    <div class="sec-h">
+      <h2>The problem it solves</h2>
+      <p>The status quo is a browser full of tabs and a lot of manual refreshing.</p>
+    </div>
     <div class="why">
       <p>
         Watching a release roll out across dozens of repos usually means opening the
-        Actions tab of every repo by hand. Convoy installs a GitHub App on your org once
-        and shows every workflow run live, split into
-        <strong style="color:var(--text)">Deploys</strong> (triggered by a release tag) and
-        <strong style="color:var(--text)">Pipelines</strong> (everything else).
+        Actions tab of every single one by hand, refreshing each to see what shipped
+        clean and what silently broke. Convoy installs a GitHub App on your org once
+        and puts every workflow run — across every repo — on one live board, split into
+        <strong style="color:var(--text)">Deploys</strong> (real releases) and
+        <strong style="color:var(--text)">Pipelines</strong> (everything else), plus an
+        <strong style="color:var(--text)">Overview</strong> that answers the one question
+        that actually matters at a glance: is anything down right now?
       </p>
     </div>
   </section>

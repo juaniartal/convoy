@@ -20,10 +20,17 @@ const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 // default becomes a wall of text you can't scan alongside the other repos.
 // Preview the most recent few on the card; the repo's own detail page (one
 // click away) always shows the full list.
-const CARD_PREVIEW_LIMIT = 5;
+const CARD_PREVIEW_LIMIT = 3;
 
 // --- State ---
-let currentTab = 'deploys';
+// Read from the URL (not just an in-memory default) so a refresh (F5) or a
+// shared link lands back on the same tab instead of always resetting to
+// Deploys — the repo detail view already does this via the hash.
+function tabFromQuery() {
+  const t = new URLSearchParams(location.search).get('tab');
+  return t === 'pipelines' || t === 'overview' ? t : 'deploys';
+}
+let currentTab = tabFromQuery();
 let currentFilter = 'all';
 let searchQuery = '';
 let hideInactive = false;
@@ -174,9 +181,27 @@ function starHtml(repo) {
 
 // --- Fetch ---
 
+let manualRefreshing = false;
+
+// A plain fetchState() call from the button is invisible if nothing
+// actually changed (auto-poll already keeps data this fresh) -- this gives
+// a brief, unmistakable "yes, it did something" pulse regardless of
+// whether the data itself moved. The fetch itself is near-instant against
+// a local cluster, so a fixed minimum duration keeps the spin from just
+// flashing past too fast to register.
+async function onManualRefresh() {
+  manualRefreshing = true;
+  render();
+  await Promise.all([fetchState(), new Promise((resolve) => setTimeout(resolve, 500))]);
+  manualRefreshing = false;
+  render();
+}
+
 async function fetchState() {
   try {
-    const params = new URLSearchParams({ view: currentTab });
+    // Overview needs both categories at once to split them into two charts
+    // client-side -- there's no separate backend view for it.
+    const params = new URLSearchParams({ view: currentTab === 'overview' ? 'all' : currentTab });
     if (searchQuery) params.set('q', searchQuery);
     if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
     const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
@@ -192,9 +217,22 @@ async function fetchState() {
   render();
 }
 
+function syncTabButtons() {
+  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === currentTab));
+}
+
 function setTab(tab) {
   currentTab = tab;
-  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
+  syncTabButtons();
+  // replaceState, not pushState -- switching tabs shouldn't pile up browser
+  // back-button history, it should just make the current URL reflect where
+  // you are (same idea as the repo-detail hash, applied via query string
+  // since a hash is already spoken for by that feature).
+  const params = new URLSearchParams(location.search);
+  if (tab === 'deploys') params.delete('tab');
+  else params.set('tab', tab);
+  const qs = params.toString();
+  history.replaceState('', '', location.pathname + (qs ? `?${qs}` : '') + location.hash);
   prevBuckets.clear();
   prevRepoOverall.clear();
   fetchState();
@@ -229,10 +267,19 @@ function onToggleShowAllDeploys() {
 // --- Grouping: repo-centric, ArgoCD-style — one card per repo, its
 // pipelines summarized inside, instead of a flat list of individual runs. ---
 
+// Scoped per repo, not to one global "newest across everyone" timestamp --
+// otherwise a repo that simply hasn't deployed today (but isn't actually
+// broken) would silently vanish from the default view the moment *any*
+// other repo ships something newer. Each repo gets judged against its own
+// most recent deploy, so a quiet repo still shows its real current state.
 function scopeToCurrentRelease(runs) {
   if (!runs.length) return runs;
-  const newest = Math.max(...runs.map((r) => new Date(r.createdAt).getTime()));
-  return runs.filter((r) => newest - new Date(r.createdAt).getTime() <= RELEASE_WINDOW_MS);
+  const newestPerRepo = new Map();
+  for (const r of runs) {
+    const t = new Date(r.createdAt).getTime();
+    if (!newestPerRepo.has(r.repo) || t > newestPerRepo.get(r.repo)) newestPerRepo.set(r.repo, t);
+  }
+  return runs.filter((r) => newestPerRepo.get(r.repo) - new Date(r.createdAt).getTime() <= RELEASE_WINDOW_MS);
 }
 
 function currentRuns() {
@@ -240,12 +287,28 @@ function currentRuns() {
   return lastRuns;
 }
 
+// Deploys are sequential releases of the same thing over time -- once a
+// newer one lands, an older failure is resolved history, not a current
+// problem, so only the latest counts. Pipelines are concurrent branches
+// (main, qa, feature/*...) that can each be broken independently, so the
+// worst *currently relevant* one still deserves to flag the whole card --
+// except a branch that's gone quiet (stale, 48h+) shouldn't keep haunting
+// the card forever either, so it's excluded unless it's all there is.
+function computeOverall(pipelines, category) {
+  if (pipelines.length === 0) return 'idle';
+  if (category === 'deploy') return styleBucket(stateOf(pipelines[0]));
+  const nonStale = pipelines.filter((p) => !isStale(p));
+  const source = nonStale.length > 0 ? nonStale : pipelines;
+  const buckets = source.map((p) => styleBucket(stateOf(p)));
+  return BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
+}
+
 // Starts from every repo the App is installed on, not just repos that
 // happen to have a run in the current tab/filter -- a repo that's never
 // deployed (or never had a plain CI run) still belongs on the board, same
 // as a repo that's gone quiet. Only exception: an active search narrows
 // this down to matching repo names, so searching still searches.
-function groupByRepo(runs, repos) {
+function groupByRepo(runs, repos, category) {
   const q = searchQuery.toLowerCase().trim();
   const baseRepos = q ? repos.filter((r) => r.fullName.toLowerCase().includes(q)) : repos;
 
@@ -257,8 +320,7 @@ function groupByRepo(runs, repos) {
   }
   const groups = [...byRepo.entries()].map(([repo, pipelines]) => {
     pipelines.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const buckets = pipelines.map((p) => styleBucket(stateOf(p)));
-    const overall = pipelines.length === 0 ? 'idle' : BUCKET_PRIORITY.find((b) => buckets.includes(b)) || 'arrived';
+    const overall = computeOverall(pipelines, category);
     const stale = pipelines.length > 0 && pipelines.every(isStale);
     return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
   });
@@ -289,7 +351,19 @@ function countRepoBuckets(groups) {
 }
 
 function render() {
-  const rawGroups = groupByRepo(currentRuns(), installedRepos);
+  const isOverview = currentTab === 'overview';
+  document.getElementById('grid').style.display = isOverview ? 'none' : '';
+  document.getElementById('overview').style.display = isOverview ? '' : 'none';
+  document.getElementById('progressTrack').style.display = isOverview ? 'none' : '';
+  document.getElementById('summary').style.display = isOverview ? 'none' : '';
+
+  if (isOverview) {
+    renderOverview();
+    return;
+  }
+
+  const category = currentTab === 'deploys' ? 'deploy' : 'pipeline';
+  const rawGroups = groupByRepo(currentRuns(), installedRepos, category);
   // "Hide inactive" means exactly that -- a repo with nothing current to
   // show (whether it never ran, or everything it has is older than the
   // cutoff) drops off the board entirely instead of sitting there as an
@@ -307,6 +381,88 @@ function render() {
     if (favoritesOnly) visibleGroups = visibleGroups.filter((g) => favorites.has(g.repo));
     renderGrid(visibleGroups);
   }
+}
+
+// --- Overview: ArgoCD-style summary page -- one donut per category showing
+// what portion of repos are healthy vs. down right now, instead of scanning
+// a grid of cards to eyeball the same thing. ---
+
+const OVERVIEW_BUCKETS = ['arrived', 'down', 'rolling', 'staged'];
+const OVERVIEW_LABEL = { arrived: 'Arrived', down: 'Down', rolling: 'Rolling', staged: 'Staged' };
+
+function renderOverview() {
+  const deployGroups = groupByRepo(
+    lastRuns.filter((r) => r.category === 'deploy'),
+    installedRepos,
+    'deploy',
+  );
+  const pipelineGroups = groupByRepo(
+    lastRuns.filter((r) => r.category === 'pipeline'),
+    installedRepos,
+    'pipeline',
+  );
+  const dc = countRepoBuckets(deployGroups);
+  const pc = countRepoBuckets(pipelineGroups);
+
+  const el = document.getElementById('overview');
+  el.innerHTML = `
+    <div class="overview-grid">
+      <div class="overview-stats">
+        <div class="overview-stats-title">Summary</div>
+        ${overviewStatRow('Repos', installedRepos.length)}
+        ${overviewStatRow('Arrived', dc.arrived + pc.arrived, 'arrived')}
+        ${overviewStatRow('Down', dc.down + pc.down, 'down')}
+        ${overviewStatRow('Rolling', dc.rolling + pc.rolling, 'rolling')}
+        ${overviewStatRow('Staged', dc.staged + pc.staged, 'staged')}
+      </div>
+      ${donutHtml('Deploys', dc)}
+      ${donutHtml('Pipelines', pc)}
+    </div>
+  `;
+}
+
+function overviewStatRow(label, value, bucket) {
+  const dot = bucket ? `<span class="repo-dot ${bucket}"></span>` : '<span class="overview-stat-spacer"></span>';
+  return `<div class="overview-stat">${dot}<span class="overview-stat-label">${label}</span><span class="overview-stat-value">${value}</span></div>`;
+}
+
+// A hairline gap between slices (rendered as a wedge of the card's own
+// background color at each boundary) is what makes a conic-gradient read as
+// distinct segments instead of one flat smear of color.
+const DONUT_GAP_DEG = 2.5;
+
+function donutHtml(title, counts) {
+  const total = OVERVIEW_BUCKETS.reduce((sum, b) => sum + counts[b], 0);
+  const legend = OVERVIEW_BUCKETS.map(
+    (b) =>
+      `<div class="donut-legend-item"><span class="repo-dot ${b}"></span>${OVERVIEW_LABEL[b]} (${counts[b]})</div>`,
+  ).join('');
+
+  const present = OVERVIEW_BUCKETS.filter((b) => counts[b] > 0);
+  const gap = present.length > 1 ? DONUT_GAP_DEG : 0;
+  let acc = 0;
+  const stops = [];
+  present.forEach((b, i) => {
+    const start = (acc / total) * 360;
+    acc += counts[b];
+    const end = (acc / total) * 360;
+    stops.push(`var(--${b}) ${start + (i > 0 ? gap / 2 : 0)}deg ${end - (i < present.length - 1 ? gap / 2 : 0)}deg`);
+    if (i < present.length - 1) stops.push(`var(--panel) ${end - gap / 2}deg ${end + gap / 2}deg`);
+  });
+  const background = total ? `conic-gradient(${stops.join(', ')})` : 'var(--inset)';
+
+  return `
+    <div class="donut-card">
+      <div class="donut-title">${title}</div>
+      <div class="donut-wrap">
+        <div class="donut" style="background: ${background}"></div>
+        <div class="donut-hole">
+          <div class="donut-hole-value">${total}</div>
+          <div class="donut-hole-label">${title.toLowerCase()}</div>
+        </div>
+      </div>
+      <div class="donut-legend">${legend}</div>
+    </div>`;
 }
 
 function renderSidebarFilters(groups) {
@@ -368,6 +524,7 @@ function renderSummary(groups) {
       <span class="muted" id="updatedText">${updatedText}</span>
       ${lastError ? `<span class="muted">(${lastError})</span>` : ''}
       <div class="ctrl-actions">
+        <button class="ghost" onclick="onManualRefresh()" title="Refresh now" ${manualRefreshing ? 'disabled' : ''}><span class="${manualRefreshing ? 'spin' : ''}">↻</span> ${manualRefreshing ? 'Refreshing…' : 'Refresh'}</button>
         ${deployToggle}
         <label class="toggle"><input type="checkbox" ${hideInactive ? 'checked' : ''}
           onchange="onToggleHideInactive(this.checked)"> Hide inactive (48h+)</label>
@@ -439,7 +596,7 @@ function pipelineHtml(run) {
         </div>
         <div class="run-actions">
           <span class="badge ${bucket}">${BADGE_LABEL[label]}</span>
-          <a href="${run.htmlUrl}" target="_blank" onclick="event.stopPropagation()" title="open run on GitHub">↗</a>
+          <a class="ext-link" href="${run.htmlUrl}" target="_blank" onclick="event.stopPropagation()" title="open run on GitHub">↗</a>
         </div>
       </div>
       <div class="jobs">${jobs || '<span class="msg">no job detail yet</span>'}</div>
@@ -479,7 +636,7 @@ function repoCardHtml(group) {
           <span class="repo-dot idle"></span>
           <span class="repo-name">${repo}</span>
           ${starHtml(repo)}
-          <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+          <a class="ext-link" href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
         </div>
         <div class="repo-card-footer muted">No ${label}s have run yet.</div>
       </div>`;
@@ -495,7 +652,7 @@ function repoCardHtml(group) {
         <span class="repo-dot ${overall}"></span>
         <span class="repo-name">${repo}</span>
         ${starHtml(repo)}
-        <a href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+        <a class="ext-link" href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
       <div class="card-pipelines">${preview.map(cardPipelineRowHtml).join('')}</div>
       ${more}
@@ -527,7 +684,7 @@ function renderDetail(group) {
   const header = `
     <div class="detail-header">
       <button class="ghost" onclick="closeRepo()">← All repos</button>
-      ${group ? `<span class="repo-name">${group.repo}</span>${starHtml(group.repo)}<a href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
+      ${group ? `<span class="repo-name">${group.repo}</span>${starHtml(group.repo)}<a class="ext-link" href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
     </div>`;
 
   if (!group) {
@@ -576,6 +733,7 @@ function tick() {
 }
 
 applyTheme(currentTheme());
+syncTabButtons();
 fetchState();
 setInterval(fetchState, POLL_MS);
 setInterval(tick, 1000);
