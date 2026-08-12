@@ -1,5 +1,9 @@
 # Convoy
 
+[![CI](https://github.com/juaniartal/convoy/actions/workflows/ci.yml/badge.svg)](https://github.com/juaniartal/convoy/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+
 Self-hosted, real-time GitHub Actions pipeline visualizer for your whole
 organization. Think ArgoCD, but for GitHub Actions runs instead of
 Kubernetes deployments.
@@ -15,6 +19,20 @@ Updates come in through GitHub webhooks, not polling. That's the part that
 lets it scale to hundreds of repos without hammering the GitHub API.
 
 ![Convoy dashboard](docs/assets/screenshot.png)
+
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Quickstart](#quickstart)
+- [Design principles](#design-principles)
+- [How classification works](#how-classification-works)
+- [Access control](#access-control)
+- [Running it for real](#running-it-for-real)
+- [Setup](#setup)
+- [Configuration reference](#configuration-reference)
+- [Status](#status)
+- [License](#license)
+- [Maintainer](#maintainer)
 
 ## Why this exists
 
