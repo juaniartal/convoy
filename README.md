@@ -200,6 +200,12 @@ server or use a different tunnel (ngrok, cloudflared) and set
 `WEBHOOK_PROXY_URL` accordingly. None of this matters in production —
 GitHub delivers webhooks straight to your deployed ingress URL there.
 
+Right after the manifest flow finishes, Probot logs
+`Probot has been set up, please restart the server!` — that's normal, not
+an error. Stop `npm run dev` (Ctrl+C) and run it again once; the first
+process was still running in "setup mode" and won't serve the real
+dashboard until it restarts with the credentials that were just written.
+
 #### If `npm run dev` crashes with `SmeeClient is not a constructor`
 
 I ran into this myself. It's a known incompatibility between Probot 14's
@@ -208,23 +214,88 @@ runtime) and Node 20/24 — confirmed it's not a network/proxy issue on my
 end, since a plain `npx smee-client@5.0.0` runs fine on its own; it's
 specifically Probot's internal dynamic import of it that breaks. Work
 around it by setting up the App and tunnel by hand instead of relying on
-the automatic manifest flow:
+the automatic manifest flow. This is more steps than the automatic path,
+so here's every field, not just a summary:
 
-1. Create the App yourself at <https://github.com/settings/apps/new> —
-   webhook URL is a smee.io channel (grab one by visiting
-   `https://smee.io/new` first), events: `Workflow run` + `Workflow job`,
-   permissions: `Actions: read`, `Metadata: read`.
-2. Generate a private key on the App's settings page, save it as
-   `private-key.pem` in this folder.
-3. Fill `.env` by hand with the App ID, webhook secret, and
-   `PRIVATE_KEY_PATH=./private-key.pem`. Leave `WEBHOOK_PROXY_URL` **empty**
-   — setting it at all triggers the crash, even outside setup mode.
-4. Run Convoy (`npm run dev`) in one terminal, and the smee relay on its
-   own in another:
-   ```bash
-   npx smee-client@5.0.0 -u https://smee.io/<your-channel> -t http://localhost:3000/api/github/webhooks
-   ```
-5. Install the App on a couple of test repos and open `http://localhost:3000`.
+**1. Create the App.** Go to
+<https://github.com/settings/apps/new> and fill in:
+
+- **GitHub App name** — anything, has to be unique on GitHub (e.g.
+  `yourname-convoy-test`).
+- **Description** — optional, leave it blank if you want.
+- **Homepage URL** — GitHub requires *something* here even though nothing
+  reads it for local testing. `http://localhost:3000` is fine.
+- **Callback URL** and **"Request user authorization (OAuth) during
+  installation"** — leave both alone (empty / unchecked). This section is
+  for apps that implement "Login with GitHub" for end users, which Convoy
+  deliberately doesn't do — see
+  [Design principles](#design-principles) above for why. Nothing to fill
+  in here.
+- **Webhook → Active** — checked.
+- **Webhook → Webhook URL** — a smee.io channel. Open
+  <https://smee.io/new> in another tab first, it gives you a URL like
+  `https://smee.io/AbCdEfGh123`; paste that here.
+- **Webhook → Webhook secret** — *you* make this up, it isn't generated
+  for you. Any string works, but a real random one is one command away:
+  ```bash
+  openssl rand -hex 20
+  ```
+  Paste the result here, and remember it — you'll type the exact same
+  value into `.env` in step 3.
+- **Repository permissions → Actions** — Read-only.
+- **Repository permissions → Metadata** — Read-only (GitHub usually
+  selects this automatically once Actions is set).
+- **Subscribe to events** — check `Workflow run` and `Workflow job`.
+- **Where can this GitHub App be installed?** — "Only on this account" is
+  fine for personal testing.
+
+Click **Create GitHub App**. GitHub creates it and shows you its settings
+page — note the **App ID** near the top, you'll need it in a minute.
+
+**2. Generate the private key.** Still on that settings page, scroll down
+to **Private keys** and click **Generate a private key**. Your browser
+downloads a `.pem` file — this is a key GitHub just generated specifically
+for this App, not any SSH key you might already have on your machine (that
+mix-up is an easy one to make and it does not work — GitHub App keys are
+always RSA and start with `-----BEGIN RSA PRIVATE KEY-----`; if you paste
+in something else, `npm run dev` will now tell you clearly instead of
+failing in a confusing way). Move the downloaded file into this project
+folder and rename it to `private-key.pem`.
+
+**3. Fill in `.env` by hand:**
+```
+APP_ID=<the App ID from step 1>
+WEBHOOK_SECRET=<the exact same string you put in the Webhook secret field>
+PRIVATE_KEY_PATH=./private-key.pem
+```
+Leave `WEBHOOK_PROXY_URL` **empty** — setting it at all triggers the crash
+this whole section exists to work around, even outside setup mode.
+
+**4. Run it.** Two terminals, both from inside this project folder:
+
+Terminal 1:
+```bash
+npm run dev
+```
+Terminal 2 (the smee relay, running independently):
+```bash
+npx smee-client@5.0.0 -u https://smee.io/<your-channel> -t http://localhost:3000/api/github/webhooks
+```
+
+**5. Install the App.** From the App's settings page, click **Install App**
+in the left sidebar, pick your account, and choose a couple of test repos.
+GitHub redirects you to a generic "Installation complete" confirmation
+page when you're done — that's just GitHub's own page, not part of
+Convoy, nothing to do there. Open `http://localhost:3000` and you should
+see your repos.
+
+**Don't want to deal with a tunnel at all yet?** You don't have to. Put
+any syntactically valid URL in the Webhook URL field (even one that goes
+nowhere) and skip terminal 2 entirely. Every webhook delivery will show as
+failed in GitHub's UI, but Convoy still updates on its own every few
+minutes via reconciliation — you just won't see changes the instant they
+happen. Good enough for "does this work at all", set up the smee tunnel
+later if you want it live.
 
 ### 2. Run it
 
