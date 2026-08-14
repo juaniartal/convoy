@@ -1,5 +1,5 @@
 # --- Build stage ---
-FROM node:25-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 # --- Runtime stage ---
-FROM node:25-alpine
+FROM node:26-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 # Probot defaults to binding localhost (127.0.0.1) unless HOST says
