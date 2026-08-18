@@ -217,6 +217,27 @@ describe('StateStore', () => {
     ).toEqual([1, 2]);
   });
 
+  it('emits a change event on every mutation, for the SSE live-update endpoint', () => {
+    const store = new StateStore();
+    const seen: string[] = [];
+    store.on('change', () => seen.push('change'));
+
+    store.upsertRepo({ id: 1, fullName: 'org/repo', private: true, defaultBranch: 'main' });
+    store.upsertRun('org/repo', makeRun());
+    store.upsertJob('org/repo', 1, {
+      id: 1,
+      name: 'build',
+      status: 'in_progress',
+      conclusion: null,
+      startedAt: null,
+      completedAt: null,
+      htmlUrl: null,
+    });
+    store.removeRepo('org/repo');
+
+    expect(seen).toHaveLength(4);
+  });
+
   it('sorts snapshot runs by most recently updated first', () => {
     const store = new StateStore();
     store.upsertRun(

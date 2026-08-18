@@ -53,6 +53,34 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
     res.json({ repos });
   });
 
+  // Push, not poll: tells connected tabs the instant a webhook changes
+  // something, instead of making them wait for their next 30s safety-net
+  // poll. Only ever sends a "something changed, go refetch" ping -- the
+  // actual data still comes from /api/state, so there's one source of
+  // truth for the shape of a run instead of two.
+  app.get('/api/events', (req, res) => {
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.flushHeaders();
+
+    const onChange = (): void => {
+      res.write('data: change\n\n');
+    };
+    state.on('change', onChange);
+
+    // Without a periodic write, an idle connection gets silently dropped by
+    // most proxies/load balancers after their own timeout (often ~60s).
+    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      state.off('change', onChange);
+    });
+  });
+
   app.use(express.static(options.publicDir));
 
   return app;
