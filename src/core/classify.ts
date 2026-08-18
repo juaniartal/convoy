@@ -20,18 +20,17 @@ export type ClassifyOverride =
   | { strategy: 'workflow-name'; deployWorkflows: string[] };
 
 /**
- * Deploy-vs-pipeline classification — the core business rule of Convoy.
+ * Deploy-vs-pipeline classification, Convoy's core business rule.
  *
- * Default heuristic combines *both* the trigger event and the ref's shape,
- * rather than trusting ref shape alone: a `release` event is always a
- * deploy; a `push` is a deploy only if what GitHub reports as head_branch
- * looks like a version tag. Everything else — pushes to real branches,
- * manual workflow_dispatch runs, scheduled runs — is a pipeline.
+ * Combines the trigger event and the ref's shape rather than trusting ref
+ * shape alone: a `release` event is always a deploy, a `push` only counts
+ * if head_branch looks like a version tag. Everything else (real branches,
+ * workflow_dispatch, scheduled runs) is a pipeline.
  *
- * An override, when present for a repo, fully replaces this default rather
- * than augmenting it — some repos deploy via a long-lived branch instead of
- * tags, and blending the two heuristics would be harder to reason about than
- * "if you've told us how this repo does it, we trust that completely."
+ * A per-repo override fully replaces this default instead of blending with
+ * it. Some repos deploy via a long-lived branch instead of tags, and "trust
+ * what the repo told us completely" is simpler to reason about than mixing
+ * two heuristics.
  */
 export function classifyRun(input: ClassifyInput, override?: ClassifyOverride): Classification {
   if (override) {

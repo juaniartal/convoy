@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { JobState, RepoState, RunSnapshot, RunState, StateSnapshot } from './types.js';
 
 /**
@@ -33,9 +34,22 @@ export interface StateFilter {
  * In-memory pipeline state, populated by webhooks and corrected by periodic
  * reconciliation. Deliberately not persisted anywhere — restart clears it,
  * and reconciliation repopulates it within one pass.
+ *
+ * Also an EventEmitter: every mutation emits 'change' so the API layer can
+ * push a live update to connected browsers (see api/routes.ts's SSE
+ * endpoint) instead of making them wait for their next poll.
  */
-export class StateStore {
+export class StateStore extends EventEmitter {
   private repos = new Map<string, RepoState>();
+
+  constructor() {
+    super();
+    // One listener per connected browser tab (the SSE endpoint), not per
+    // repo or run -- Node's default cap of 10 is sized for typical service
+    // event buses, not "however many tabs someone has this dashboard open
+    // in." 50 is a generous ceiling for a single self-hosted instance.
+    this.setMaxListeners(50);
+  }
 
   upsertRepo(identity: RepoIdentity): RepoState {
     const existing = this.repos.get(identity.fullName);
@@ -43,15 +57,18 @@ export class StateStore {
       existing.id = identity.id;
       existing.private = identity.private;
       existing.defaultBranch = identity.defaultBranch;
+      this.emit('change');
       return existing;
     }
     const repo: RepoState = { ...identity, runs: new Map(), lastReconciledAt: null };
     this.repos.set(identity.fullName, repo);
+    this.emit('change');
     return repo;
   }
 
   removeRepo(fullName: string): void {
     this.repos.delete(fullName);
+    this.emit('change');
   }
 
   markReconciled(fullName: string, at: string): void {
@@ -83,6 +100,7 @@ export class StateStore {
     const run: RunState = { ...data, jobs: existing?.jobs ?? new Map() };
     repo.runs.set(data.id, run);
     this.evictOldest(repo);
+    this.emit('change');
     return run;
   }
 
@@ -114,6 +132,7 @@ export class StateStore {
       repo.runs.set(runId, run);
     }
     run.jobs.set(job.id, job);
+    this.emit('change');
   }
 
   private evictOldest(repo: RepoState): void {
@@ -155,16 +174,15 @@ export class StateStore {
 }
 
 /**
- * A board shows current state, not history — a repo re-running the same
- * workflow five times in an hour (e.g. a busy qa branch merging repeatedly)
+ * A board shows current state, not history. A repo re-running the same
+ * workflow five times in an hour (a busy qa branch merging repeatedly)
  * should occupy one card, not five.
  *
- * Grouped by repo+workflow+ref+category, not just repo+workflow — plenty of
- * real setups trigger the *same* workflow name (e.g. "Containerize and
- * Deploy") from many branches at once (qa, sandbox, staging...). Keying on
- * workflow name alone would silently collapse "qa just finished" and
- * "sandbox just finished" into a single card and drop one of them. The ref
- * (branch or tag) is what actually distinguishes them.
+ * Grouped by repo+workflow+ref+category, not just repo+workflow, because
+ * plenty of setups trigger the same workflow name from several branches at
+ * once (qa, sandbox, staging). Keying on the workflow name alone would
+ * collapse "qa just finished" and "sandbox just finished" into one card and
+ * silently drop one of them; the ref is what actually tells them apart.
  */
 function dedupeByLatestPerWorkflow(runs: RunSnapshot[]): RunSnapshot[] {
   const latest = new Map<string, RunSnapshot>();

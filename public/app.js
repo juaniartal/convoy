@@ -1,5 +1,8 @@
 // --- Config ---
-const POLL_MS = 5000; // polling our own backend, not GitHub — no rate limit concern here
+// Real-time updates come from the SSE connection below (near-instant, tied
+// to the same webhooks the backend already reacts to) -- this poll is only
+// the safety net for a dropped SSE connection, so it can be slow.
+const POLL_MS = 30000;
 // A repo's row gets a muted look once ALL its pipelines have gone this long
 // without an update — never hidden outright. A repo that's gone quiet still
 // belongs on the board with its last known state; disappearing entirely
@@ -190,6 +193,7 @@ let manualRefreshing = false;
 // a local cluster, so a fixed minimum duration keeps the spin from just
 // flashing past too fast to register.
 async function onManualRefresh() {
+  if (manualRefreshing) return; // already mid-refresh -- a fast double click shouldn't stack requests
   manualRefreshing = true;
   render();
   await Promise.all([fetchState(), new Promise((resolve) => setTimeout(resolve, 500))]);
@@ -197,7 +201,18 @@ async function onManualRefresh() {
   render();
 }
 
+// The 5s auto-poll, a manual refresh, and switching tabs can all trigger a
+// fetch while a previous one is still in flight. Responses aren't
+// guaranteed to arrive in the order they were sent -- without this guard,
+// an older (slower) response landing after a newer one would silently
+// overwrite fresh data with stale data until the next poll cycle papered
+// over it. fetchSeq tags each call so only the most recent one is applied.
+let fetchSeq = 0;
+
 async function fetchState() {
+  const seq = ++fetchSeq;
+  let runs, repos;
+  let error = null;
   try {
     // Overview needs both categories at once to split them into two charts
     // client-side -- there's no separate backend view for it.
@@ -207,12 +222,21 @@ async function fetchState() {
     const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
     if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
     const data = await stateRes.json();
-    lastRuns = data.runs;
-    if (reposRes.ok) installedRepos = (await reposRes.json()).repos;
+    runs = data.runs;
+    if (reposRes.ok) repos = (await reposRes.json()).repos;
+  } catch (err) {
+    error = err.message || 'fetch failed';
+  }
+
+  if (seq !== fetchSeq) return; // superseded by a newer fetch -- this response is stale, discard it
+
+  if (error) {
+    lastError = error;
+  } else {
+    lastRuns = runs;
+    if (repos) installedRepos = repos;
     lastError = null;
     lastFetchedAt = Date.now();
-  } catch (err) {
-    lastError = err.message || 'fetch failed';
   }
   render();
 }
@@ -249,9 +273,15 @@ function setFilter(f) {
   render();
 }
 
+let searchDebounceTimer = null;
+
+// Firing a fetch on every keystroke means fast typing floods the server
+// with requests for query strings that are already stale by the time they
+// land. A short debounce collapses that into one fetch after typing pauses.
 function onSearchInput(value) {
   searchQuery = value;
-  fetchState();
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(fetchState, 250);
 }
 
 function onToggleHideInactive(checked) {
@@ -732,8 +762,19 @@ function tick() {
   }
 }
 
+// Live push: the server pings this the instant a webhook changes something,
+// so updates land in well under a second instead of waiting for the next
+// poll. EventSource reconnects on its own if the connection drops (e.g. the
+// backend restarting) -- no reconnect logic needed here.
+function connectLiveUpdates() {
+  if (typeof EventSource === 'undefined') return; // ancient browser -- poll still covers it
+  const events = new EventSource('/api/events');
+  events.onmessage = () => fetchState();
+}
+
 applyTheme(currentTheme());
 syncTabButtons();
 fetchState();
+connectLiveUpdates();
 setInterval(fetchState, POLL_MS);
 setInterval(tick, 1000);

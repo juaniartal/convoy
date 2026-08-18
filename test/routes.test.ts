@@ -78,6 +78,33 @@ describe('createApiApp with an apiKey set', () => {
   });
 });
 
+describe('createApiApp SSE events endpoint', () => {
+  it('pushes a change event to connected clients when state mutates', async () => {
+    const state = new StateStore();
+    const app = createApiApp(state, {
+      publicDir: process.cwd(),
+      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+    });
+    const { server, baseUrl } = await listen(app);
+    const controller = new AbortController();
+
+    const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+
+    const reader = res.body!.getReader();
+    setTimeout(
+      () => state.upsertRepo({ id: 1, fullName: 'org/repo', private: true, defaultBranch: 'main' }),
+      20,
+    );
+
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toContain('data: change');
+
+    controller.abort();
+    server.close();
+  });
+});
+
 describe('createApiApp with no apiKey', () => {
   it('allows requests through with no Authorization header at all', async () => {
     const app = createApiApp(new StateStore(), {
