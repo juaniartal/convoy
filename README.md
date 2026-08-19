@@ -191,6 +191,53 @@ Either way, the last step is the same: in your GitHub App's settings, set
 the webhook URL to your deployed instance's `/api/github/webhooks`
 endpoint.
 
+### Is it actually real-time?
+
+Convoy always runs two things at once — there's no setting that picks
+between them:
+
+- **Webhooks** push an update the instant something happens on GitHub. This
+  is what makes the board feel instant.
+- **Reconciliation** polls GitHub directly every 5 minutes, regardless,
+  whether webhooks are working or not. It exists so a single failed
+  delivery (a GitHub hiccup, a brief network blip) never leaves you more
+  than 5 minutes stale — it's a safety net, not a mode you opt into.
+
+Which one you're actually getting at any moment comes down entirely to
+whether GitHub can reach Convoy's webhook endpoint. Three things have to be
+true:
+
+1. Your GitHub App's webhook URL is set to something real (not blank, not
+   pointing at a tunnel that isn't running).
+2. That URL is reachable from the public internet.
+3. **It points at wherever Convoy is *actually* running right now — same
+   host, same port.** This is the one people get bitten by: a tunnel or
+   Ingress keeps forwarding traffic to an address nothing is listening on
+   anymore (an old process, a different port after a restart), and nothing
+   anywhere throws an error — you just quietly start getting 5-minute-stale
+   updates instead of instant ones.
+
+**How to check which one you're actually getting:** hit `/api/healthz`:
+```json
+{ "status": "ok", "installationCount": 3, "lastReconciledAt": "...", "lastWebhookReceivedAt": "..." }
+```
+Trigger a run on GitHub and watch `lastWebhookReceivedAt`. If it updates
+within a second or two, webhooks are live. If it stays stuck (or `null`)
+while `lastReconciledAt` keeps advancing every 5 minutes on its own,
+GitHub isn't reaching you — check point 3 above first, it's the usual
+culprit.
+
+**To make sure it's always real-time, not just right after setup:**
+- **Solo/individual** (Case 2 above): the always-on VPS option (2-A) is the
+  simplest way to guarantee this — one process, one public IP, nothing in
+  between that can drift out of sync. The local-cluster-plus-tunnel option
+  (2-B) works too, but you're responsible for keeping the tunnel and
+  Convoy pointed at the same port every time you bring it back up.
+- **Company** (Case 3 above): a real Ingress on a domain that's always up.
+  Once it's wired correctly, Kubernetes keeps the Service pointed at
+  whichever pod is actually alive automatically — nothing to keep in sync
+  by hand.
+
 ## Design principles
 
 A few decisions here were deliberate, so I'm writing down the reasoning

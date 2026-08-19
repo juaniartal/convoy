@@ -170,7 +170,11 @@ setInterval(() => {
 
 const app = createApiApp(state, {
   publicDir,
-  getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+  getHealthInfo: () => ({
+    installationCount: 0,
+    lastReconciledAt: null,
+    lastWebhookReceivedAt: null,
+  }),
 });
 
 const port = Number(process.env.PORT) || 3000;

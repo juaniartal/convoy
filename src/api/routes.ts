@@ -8,8 +8,14 @@ export interface ApiAppOptions {
   publicDir: string;
   apiKey?: string;
   oidc?: OidcClient;
-  /** For /api/healthz — surfaced for operators debugging a stuck deployment. */
-  getHealthInfo: () => { installationCount: number; lastReconciledAt: string | null };
+  /** For /api/healthz — surfaced for operators debugging a stuck deployment,
+   * and for answering "is this instance actually getting live webhooks or
+   * just running on the reconciliation safety net". */
+  getHealthInfo: () => {
+    installationCount: number;
+    lastReconciledAt: string | null;
+    lastWebhookReceivedAt: string | null;
+  };
 }
 
 /**

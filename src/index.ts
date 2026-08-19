@@ -58,12 +58,31 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
   const state = new StateStore();
   const config = loadConfig(process.env.CONVOY_CONFIG_PATH ?? './convoy.yaml');
 
-  probotApp.on('workflow_run', handleWorkflowRun(state, config));
-  probotApp.on('workflow_job', handleWorkflowJob(state, config));
-  probotApp.on('installation.created', handleInstallationCreated(state));
-  probotApp.on('installation.deleted', handleInstallationDeleted(state));
-  probotApp.on('installation_repositories.added', handleInstallationRepositoriesAdded(state));
-  probotApp.on('installation_repositories.removed', handleInstallationRepositoriesRemoved(state));
+  // Tracked separately from lastReconciledAt so /api/healthz can answer "is
+  // GitHub actually reaching me right now" -- the one thing that determines
+  // whether updates are instant or waiting on the next reconciliation pass,
+  // and the one thing that's easy to get wrong (webhook URL pointing at a
+  // different port/host than where this process is actually listening).
+  let lastWebhookReceivedAt: string | null = null;
+  function trackWebhook<Ctx>(handler: (ctx: Ctx) => unknown) {
+    return (ctx: Ctx): unknown => {
+      lastWebhookReceivedAt = new Date().toISOString();
+      return handler(ctx);
+    };
+  }
+
+  probotApp.on('workflow_run', trackWebhook(handleWorkflowRun(state, config)));
+  probotApp.on('workflow_job', trackWebhook(handleWorkflowJob(state, config)));
+  probotApp.on('installation.created', trackWebhook(handleInstallationCreated(state)));
+  probotApp.on('installation.deleted', trackWebhook(handleInstallationDeleted(state)));
+  probotApp.on(
+    'installation_repositories.added',
+    trackWebhook(handleInstallationRepositoriesAdded(state)),
+  );
+  probotApp.on(
+    'installation_repositories.removed',
+    trackWebhook(handleInstallationRepositoriesRemoved(state)),
+  );
 
   let lastReconciledAt: string | null = null;
   let installationCount = 0;
@@ -101,7 +120,7 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
     publicDir,
     apiKey: process.env.CONVOY_API_KEY,
     oidc,
-    getHealthInfo: () => ({ installationCount, lastReconciledAt }),
+    getHealthInfo: () => ({ installationCount, lastReconciledAt, lastWebhookReceivedAt }),
   });
 
   addHandler((req, res) => {
