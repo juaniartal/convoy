@@ -39,7 +39,11 @@ describe('createApiApp with an apiKey set', () => {
     const app = createApiApp(new StateStore(), {
       publicDir,
       apiKey: 'secret123',
-      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
     });
     ({ server, baseUrl } = await listen(app));
   });
@@ -54,6 +58,26 @@ describe('createApiApp with an apiKey set', () => {
   it('never gates /api/healthz, even with an apiKey set', async () => {
     const res = await fetch(`${baseUrl}/api/healthz`);
     expect(res.status).toBe(200);
+  });
+
+  it('surfaces lastWebhookReceivedAt via /api/healthz, distinct from lastReconciledAt', async () => {
+    const app = createApiApp(new StateStore(), {
+      publicDir,
+      getHealthInfo: () => ({
+        installationCount: 1,
+        lastReconciledAt: '2026-01-01T00:00:00.000Z',
+        lastWebhookReceivedAt: '2026-01-01T00:05:00.000Z',
+      }),
+    });
+    const { server, baseUrl: healthzBaseUrl } = await listen(app);
+    const res = await fetch(`${healthzBaseUrl}/api/healthz`);
+    expect(await res.json()).toEqual({
+      status: 'ok',
+      installationCount: 1,
+      lastReconciledAt: '2026-01-01T00:00:00.000Z',
+      lastWebhookReceivedAt: '2026-01-01T00:05:00.000Z',
+    });
+    server.close();
   });
 
   it('rejects an /api/* route with no credentials, as plain JSON', async () => {
@@ -153,7 +177,11 @@ describe('createApiApp with OIDC configured', () => {
     const app = createApiApp(new StateStore(), {
       publicDir,
       oidc: fakeOidc,
-      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
     });
     ({ server, baseUrl } = await listen(app));
   });
@@ -201,7 +229,11 @@ describe('createApiApp SSE events endpoint', () => {
     const state = new StateStore();
     const app = createApiApp(state, {
       publicDir,
-      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
     });
     const { server, baseUrl } = await listen(app);
     const controller = new AbortController();
@@ -227,7 +259,11 @@ describe('createApiApp with no apiKey and no oidc', () => {
   it('allows requests through with no Authorization header or session at all', async () => {
     const app = createApiApp(new StateStore(), {
       publicDir,
-      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
     });
     const { server, baseUrl } = await listen(app);
     const res = await fetch(`${baseUrl}/api/repos`);
