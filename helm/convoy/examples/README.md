@@ -18,9 +18,9 @@ and provide a Secret with that name containing `APP_ID`, `PRIVATE_KEY`,
 `WEBHOOK_SECRET` (and `CONVOY_API_KEY` if you use the optional API key
 gate) — same keys the chart's own Secret would have.
 
-- `azure-keyvault-external-secret.yaml` — an ExternalSecret example for
-  Azure Key Vault via External Secrets Operator. The same shape works for
-  AWS Secrets Manager, GCP Secret Manager, or Vault — just swap the
-  `secretStoreRef`.
-- `seed-keyvault.sh` — one-time script to put the three GitHub App
-  credentials into Key Vault under the key names the example expects.
+- `azure-keyvault-external-secret.yaml` + `seed-keyvault.sh` — Azure Key
+  Vault via External Secrets Operator, plus the one-time script to seed the
+  three credentials into it.
+- `aws-secretsmanager-external-secret.yaml` + `seed-secretsmanager.sh` —
+  same thing for AWS Secrets Manager. Same shape works for GCP Secret
+  Manager or Vault too — just swap the `secretStoreRef`.

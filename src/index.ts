@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { ApplicationFunction } from 'probot';
 import { createApiApp } from './api/routes.js';
+import { loadOidcSettings, OidcClient } from './api/oidc.js';
 import { loadConfig } from './config/overrides.js';
 import { runReconciliation } from './core/reconcile.js';
 import { StateStore } from './core/state.js';
@@ -28,16 +29,30 @@ const BOOT_LOOKBACK_HOURS = 48;
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
-const app: ApplicationFunction = (probotApp, { addHandler }) => {
-  // Convoy has no login of its own (same tradeoff Prometheus makes) --
-  // CONVOY_API_KEY is the only built-in gate. Someone deploying without
-  // either that or their own SSO/VPN in front deserves a nudge before they
-  // find out the hard way that the dashboard is wide open.
-  if (!process.env.CONVOY_API_KEY) {
+const app: ApplicationFunction = async (probotApp, { addHandler }) => {
+  const oidcSettings = loadOidcSettings(process.env);
+  // Neither gate configured: the dashboard has no login of its own (same
+  // tradeoff Prometheus makes without an auth proxy in front). Someone
+  // deploying without either one deserves a nudge before they find out the
+  // hard way that the dashboard is wide open.
+  if (!process.env.CONVOY_API_KEY && !oidcSettings) {
     probotApp.log.warn(
-      'CONVOY_API_KEY is not set — the dashboard has no access control of its own. ' +
+      'Neither CONVOY_API_KEY nor CONVOY_OIDC_* are set — the dashboard has no access control of its own. ' +
         'Do not expose it directly to the public internet without an authenticating proxy, VPN, or SSO in front. See the README\'s "Access control" section.',
     );
+  }
+
+  let oidc: OidcClient | undefined;
+  if (oidcSettings) {
+    try {
+      oidc = await OidcClient.create(oidcSettings);
+    } catch (err) {
+      probotApp.log.error(
+        { err },
+        'failed to set up OIDC login — check CONVOY_OIDC_ISSUER_URL and that the discovery document is reachable. ' +
+          'Falling back to CONVOY_API_KEY only, if set.',
+      );
+    }
   }
 
   const state = new StateStore();
@@ -85,6 +100,7 @@ const app: ApplicationFunction = (probotApp, { addHandler }) => {
   const apiApp = createApiApp(state, {
     publicDir,
     apiKey: process.env.CONVOY_API_KEY,
+    oidc,
     getHealthInfo: () => ({ installationCount, lastReconciledAt }),
   });
 

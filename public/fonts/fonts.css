@@ -19,3 +19,13 @@
   font-display: swap;
   src: url('./jetbrains-mono.woff2') format('woff2');
 }
+
+/* Display font for the login page's wordmark only -- everywhere else in
+   the app still uses Inter/JetBrains Mono. */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./space-grotesk.woff2') format('woff2');
+}
