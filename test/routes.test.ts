@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { createApiApp } from '../src/api/routes.js';
 import { StateStore } from '../src/core/state.js';
+import type { OidcClient } from '../src/api/oidc.js';
+
+// The real public/ dir, not process.cwd() -- /login serves login.html via
+// res.sendFile, which needs an actual file on disk to exist.
+const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
 function listen(
   app: ReturnType<typeof createApiApp>,
@@ -16,13 +22,22 @@ function listen(
   });
 }
 
+/** Extracts the session cookie's "name=value" pair from a Set-Cookie header,
+ * dropping the attributes (HttpOnly, Path, etc.) -- that's all `fetch`'s
+ * Cookie header needs to send it back on the next request. */
+function sessionCookieFrom(res: Response): string {
+  const setCookie = res.headers.get('set-cookie');
+  if (!setCookie) throw new Error('no Set-Cookie header in response');
+  return setCookie.split(';')[0];
+}
+
 describe('createApiApp with an apiKey set', () => {
   let server: http.Server;
   let baseUrl: string;
 
   beforeAll(async () => {
     const app = createApiApp(new StateStore(), {
-      publicDir: process.cwd(),
+      publicDir,
       apiKey: 'secret123',
       getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
     });
@@ -41,10 +56,35 @@ describe('createApiApp with an apiKey set', () => {
     expect(res.status).toBe(200);
   });
 
-  it('rejects a real route with no credentials, prompting for Basic auth', async () => {
+  it('rejects an /api/* route with no credentials, as plain JSON', async () => {
     const res = await fetch(`${baseUrl}/api/repos`);
     expect(res.status).toBe(401);
-    expect(res.headers.get('www-authenticate')).toContain('Basic');
+  });
+
+  it('redirects a document request with no session to /login', async () => {
+    const res = await fetch(`${baseUrl}/`, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/login');
+  });
+
+  it('always leaves /login, /api/auth/config, and /api/login reachable', async () => {
+    const login = await fetch(`${baseUrl}/login`);
+    expect(login.status).toBe(200);
+    const config = await fetch(`${baseUrl}/api/auth/config`);
+    expect(config.status).toBe(200);
+    expect(await config.json()).toEqual({ passwordEnabled: true, oidc: null });
+  });
+
+  // Regression guard: these were briefly caught by the auth gate too, which
+  // meant the login page itself couldn't render (broken logo, no font) --
+  // a lockout with no way in.
+  it("serves the login page's own assets (logo, font, script) without a session", async () => {
+    const icon = await fetch(`${baseUrl}/login-owl.png`);
+    expect(icon.status).toBe(200);
+    const font = await fetch(`${baseUrl}/fonts/inter.woff2`);
+    expect(font.status).toBe(200);
+    const script = await fetch(`${baseUrl}/login.js`);
+    expect(script.status).toBe(200);
   });
 
   it('accepts a matching Bearer token', async () => {
@@ -61,20 +101,98 @@ describe('createApiApp with an apiKey set', () => {
     expect(res.status).toBe(401);
   });
 
-  it('accepts Basic auth with the key as the password, any username', async () => {
-    const creds = Buffer.from('anyone:secret123').toString('base64');
-    const res = await fetch(`${baseUrl}/api/repos`, {
-      headers: { Authorization: `Basic ${creds}` },
-    });
-    expect(res.status).toBe(200);
-  });
-
-  it('rejects Basic auth with the wrong password', async () => {
-    const creds = Buffer.from('anyone:wrong').toString('base64');
-    const res = await fetch(`${baseUrl}/api/repos`, {
-      headers: { Authorization: `Basic ${creds}` },
+  it('rejects a login with the wrong password and sets no cookie', async () => {
+    const res = await fetch(`${baseUrl}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'wrong' }),
     });
     expect(res.status).toBe(401);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('logs in with the right password, then the session cookie grants access', async () => {
+    const loginRes = await fetch(`${baseUrl}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'secret123' }),
+    });
+    expect(loginRes.status).toBe(200);
+    const cookie = sessionCookieFrom(loginRes);
+
+    const reposRes = await fetch(`${baseUrl}/api/repos`, { headers: { Cookie: cookie } });
+    expect(reposRes.status).toBe(200);
+
+    const logoutRes = await fetch(`${baseUrl}/api/logout`, {
+      method: 'POST',
+      headers: { Cookie: cookie },
+    });
+    expect(logoutRes.status).toBe(200);
+
+    // Same cookie, but the session behind it is gone.
+    const afterLogout = await fetch(`${baseUrl}/api/repos`, { headers: { Cookie: cookie } });
+    expect(afterLogout.status).toBe(401);
+  });
+});
+
+describe('createApiApp with OIDC configured', () => {
+  let server: http.Server;
+  let baseUrl: string;
+  let lastCallbackState: string | undefined;
+
+  const fakeOidc = {
+    settings: { buttonLabel: 'Log in with Test IdP' },
+    buildAuthorizationUrl: async () => new URL('https://idp.example.test/authorize?state=abc123'),
+    handleCallback: async (url: URL) => {
+      lastCallbackState = url.searchParams.get('state') ?? undefined;
+      return url.searchParams.get('state') === 'good-state';
+    },
+  } as unknown as OidcClient;
+
+  beforeAll(async () => {
+    const app = createApiApp(new StateStore(), {
+      publicDir,
+      oidc: fakeOidc,
+      getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
+    });
+    ({ server, baseUrl } = await listen(app));
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it('advertises the button label via /api/auth/config', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/config`);
+    expect(await res.json()).toEqual({
+      passwordEnabled: false,
+      oidc: { label: 'Log in with Test IdP' },
+    });
+  });
+
+  it('redirects /api/auth/oidc/start to the IdP authorization URL', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/oidc/start`, { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://idp.example.test/authorize?state=abc123');
+  });
+
+  it('rejects an invalid callback with 401 and sets no cookie', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/oidc/callback?state=bad-state&code=x`);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(lastCallbackState).toBe('bad-state');
+  });
+
+  it('grants a session and redirects home on a valid callback', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/oidc/callback?state=good-state&code=x`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/');
+    const cookie = sessionCookieFrom(res);
+
+    const reposRes = await fetch(`${baseUrl}/api/repos`, { headers: { Cookie: cookie } });
+    expect(reposRes.status).toBe(200);
   });
 });
 
@@ -82,7 +200,7 @@ describe('createApiApp SSE events endpoint', () => {
   it('pushes a change event to connected clients when state mutates', async () => {
     const state = new StateStore();
     const app = createApiApp(state, {
-      publicDir: process.cwd(),
+      publicDir,
       getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
     });
     const { server, baseUrl } = await listen(app);
@@ -105,10 +223,10 @@ describe('createApiApp SSE events endpoint', () => {
   });
 });
 
-describe('createApiApp with no apiKey', () => {
-  it('allows requests through with no Authorization header at all', async () => {
+describe('createApiApp with no apiKey and no oidc', () => {
+  it('allows requests through with no Authorization header or session at all', async () => {
     const app = createApiApp(new StateStore(), {
-      publicDir: process.cwd(),
+      publicDir,
       getHealthInfo: () => ({ installationCount: 0, lastReconciledAt: null }),
     });
     const { server, baseUrl } = await listen(app);

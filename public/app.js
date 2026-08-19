@@ -220,6 +220,10 @@ async function fetchState() {
     if (searchQuery) params.set('q', searchQuery);
     if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
     const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
+    if (stateRes.status === 401) {
+      location.href = '/login';
+      return;
+    }
     if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
     const data = await stateRes.json();
     runs = data.runs;
@@ -501,6 +505,7 @@ function renderSidebarFilters(groups) {
   if (el) {
     el.innerHTML = [
       ['all', 'All', c.total],
+      ['arrived', 'Arrived', c.arrived],
       ['down', 'Down', c.down],
       ['rolling', 'Rolling', c.rolling],
       ['staged', 'Staged', c.staged],
@@ -771,6 +776,22 @@ function connectLiveUpdates() {
   const events = new EventSource('/api/events');
   events.onmessage = () => fetchState();
 }
+
+async function onLogout() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/login';
+}
+
+// Only worth showing once we know a login gate actually exists -- otherwise
+// it's a button that does nothing useful for the common no-auth setup.
+fetch('/api/auth/config')
+  .then((res) => res.json())
+  .then((cfg) => {
+    if (cfg.passwordEnabled || cfg.oidc) {
+      document.getElementById('logoutBtn').style.display = '';
+    }
+  })
+  .catch(() => {});
 
 applyTheme(currentTheme());
 syncTabButtons();

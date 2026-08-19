@@ -1,9 +1,13 @@
+import path from 'node:path';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { StateStore } from '../core/state.js';
+import { OidcClient } from './oidc.js';
+import { SESSION_COOKIE, SessionStore } from './session.js';
 
 export interface ApiAppOptions {
   publicDir: string;
   apiKey?: string;
+  oidc?: OidcClient;
   /** For /api/healthz — surfaced for operators debugging a stuck deployment. */
   getHealthInfo: () => { installationCount: number; lastReconciledAt: string | null };
 }
@@ -11,10 +15,15 @@ export interface ApiAppOptions {
 /**
  * The only HTTP surface Convoy exposes beyond the GitHub webhook endpoint
  * (which Probot mounts separately). Read-only by design — there are no
- * mutation routes in v1.
+ * mutation routes in v1, aside from the login/logout pair below.
  */
 export function createApiApp(state: StateStore, options: ApiAppOptions): Express {
   const app = express();
+  // Without this, req.protocol/req.secure reflect the connection from the
+  // ingress/reverse proxy (always http), not the browser's real scheme --
+  // that would make secure cookies never get set in production.
+  app.set('trust proxy', 1);
+  app.use(express.json({ limit: '10kb' }));
 
   // Registered before the auth gate on purpose: Kubernetes' own liveness/
   // readiness probes hit this with no credentials, and health status isn't
@@ -24,8 +33,71 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
     res.json({ status: 'ok', ...options.getHealthInfo() });
   });
 
-  if (options.apiKey) {
-    app.use(requireAuth(options.apiKey));
+  const sessions = new SessionStore();
+  const authEnabled = Boolean(options.apiKey) || Boolean(options.oidc);
+
+  // Auth endpoints and the handful of static assets the login page itself
+  // needs stay reachable even when the gate below is active -- otherwise
+  // the login page can't render (broken logo, no font) and there'd be no
+  // way to ever pass the gate in the first place.
+  app.get('/login', (_req, res) => {
+    res.sendFile(path.join(options.publicDir, 'login.html'));
+  });
+  app.get('/login.js', (_req, res) => {
+    res.sendFile(path.join(options.publicDir, 'login.js'));
+  });
+  app.get('/login-owl.png', (_req, res) => {
+    res.sendFile(path.join(options.publicDir, 'login-owl.png'));
+  });
+  app.use('/fonts', express.static(path.join(options.publicDir, 'fonts')));
+
+  app.get('/api/auth/config', (_req, res) => {
+    res.json({
+      passwordEnabled: Boolean(options.apiKey),
+      oidc: options.oidc ? { label: options.oidc.settings.buttonLabel } : null,
+    });
+  });
+
+  app.post('/api/login', (req, res) => {
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!options.apiKey || password !== options.apiKey) {
+      res.status(401).json({ error: 'invalid credentials' });
+      return;
+    }
+    setSessionCookie(res, sessions.create(), req.secure);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/logout', (req, res) => {
+    sessions.destroy(readSessionCookie(req));
+    res.clearCookie(SESSION_COOKIE);
+    res.json({ ok: true });
+  });
+
+  if (options.oidc) {
+    const oidc = options.oidc;
+
+    app.get('/api/auth/oidc/start', async (_req, res) => {
+      const authUrl = await oidc.buildAuthorizationUrl();
+      res.redirect(authUrl.toString());
+    });
+
+    app.get('/api/auth/oidc/callback', async (req, res) => {
+      const currentUrl = new URL(req.originalUrl, `${req.protocol}://${req.get('host')}`);
+      const ok = await oidc.handleCallback(currentUrl);
+      if (!ok) {
+        res
+          .status(401)
+          .send('SSO login failed — the link may have expired. Go back and try again.');
+        return;
+      }
+      setSessionCookie(res, sessions.create(), req.secure);
+      res.redirect('/');
+    });
+  }
+
+  if (authEnabled) {
+    app.use(requireAuth(sessions, options.apiKey));
   }
 
   app.get('/api/state', (req, res) => {
@@ -90,35 +162,57 @@ function parseView(raw: unknown): 'deploys' | 'pipelines' | 'all' | undefined {
   return raw === 'deploys' || raw === 'pipelines' || raw === 'all' ? raw : undefined;
 }
 
+function setSessionCookie(res: Response, sessionId: string, secure: boolean): void {
+  res.cookie(SESSION_COOKIE, sessionId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure,
+    maxAge: 12 * 60 * 60 * 1000,
+    path: '/',
+  });
+}
+
+function readSessionCookie(req: Request): string | undefined {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() !== SESSION_COOKIE) continue;
+    try {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 /**
- * Accepts either scheme against the same shared secret:
- *  - Bearer <apiKey>, for scripts and reverse proxies (unchanged from before)
- *  - Basic <base64(anything:apiKey)>, so a plain browser tab gets a real,
- *    native login prompt (via WWW-Authenticate below) instead of a silent
- *    401 that only a script could ever get past. Convoy still doesn't have
- *    to build or maintain any login UI of its own.
+ * Two ways in: a valid session cookie (browser, set by /api/login or the
+ * OIDC callback), or a Bearer token matching apiKey (scripts, curl, a
+ * reverse proxy). API routes that fail either get a plain 401 -- the
+ * frontend redirects to /login itself on that. Document/navigation requests
+ * get redirected straight there instead of showing a bare JSON error.
  */
-function requireAuth(apiKey: string) {
+function requireAuth(sessions: SessionStore, apiKey?: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (isAuthorized(req, apiKey)) {
+    if (isAuthorized(req, sessions, apiKey)) {
       next();
       return;
     }
-    res.set('WWW-Authenticate', 'Basic realm="Convoy"');
-    res.status(401).json({ error: 'unauthorized' });
+    if (req.path.startsWith('/api/')) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    res.redirect('/login');
   };
 }
 
-function isAuthorized(req: Request, apiKey: string): boolean {
+function isAuthorized(req: Request, sessions: SessionStore, apiKey?: string): boolean {
+  if (sessions.isValid(readSessionCookie(req))) return true;
+  if (!apiKey) return false;
   const header = req.header('authorization') ?? '';
   const [scheme, credentials] = header.split(' ');
-  if (scheme === 'Bearer') return credentials === apiKey;
-  if (scheme === 'Basic' && credentials) {
-    const decoded = Buffer.from(credentials, 'base64').toString('utf8');
-    // Basic Auth is "username:password" — the username is ignored on
-    // purpose, there's only one shared secret, not per-user accounts.
-    const password = decoded.slice(decoded.indexOf(':') + 1);
-    return password === apiKey;
-  }
-  return false;
+  return scheme === 'Bearer' && credentials === apiKey;
 }

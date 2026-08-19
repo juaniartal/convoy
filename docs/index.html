@@ -19,7 +19,13 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  body { font-family: var(--sans); background: var(--ink); color: var(--text); line-height: 1.6; overflow-x: hidden; }
+  body { font-family: var(--sans); background: var(--ink); color: var(--text); line-height: 1.6; overflow-x: hidden;
+    position: relative; }
+  /* A faint grain over everything -- the difference between "flat color" and
+     "material with some depth to it" that a lot of premium product sites
+     lean on. Cheap: one inline SVG noise filter, no image request. */
+  body::before { content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 22px; }
   a { color: var(--signal); }
   .muted { color: var(--fog); }
@@ -27,37 +33,68 @@
   code { font-family: var(--mono); background: var(--inset); border: 1px solid var(--line);
     padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
 
-  header { position: sticky; top: 0; z-index: 20; background: rgba(12, 12, 16, 0.92);
-    border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--ink); }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fog); }
+
+  /* Progressive enhancement: content is fully visible by default. JS only
+     adds .pending (via the reveal script below) right before observing, so
+     nothing ever depends on JS running for the page to be readable. */
+  .reveal { transition: opacity 0.7s ease, transform 0.7s ease; }
+  .reveal.pending { opacity: 0; transform: translateY(22px); }
+
+  header { position: sticky; top: 0; z-index: 20; background: rgba(12, 12, 16, 0.8);
+    border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); transition: background 0.2s ease; }
   header .wrap { display: flex; align-items: center; gap: 10px; height: 62px; }
   header .word { font-size: 16px; }
   header nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
-  header nav a { color: var(--text); text-decoration: none; }
+  header nav a { color: var(--text); text-decoration: none; position: relative; padding-bottom: 2px; }
+  header nav a::after { content: ''; position: absolute; left: 0; right: 100%; bottom: -1px; height: 1.5px;
+    background: var(--signal); transition: right 0.2s ease; }
   header nav a:hover { color: var(--signal); }
+  header nav a:hover::after { right: 0; }
 
-  .hero { position: relative; padding: 68px 0 48px; text-align: center; overflow: hidden; }
+  .hero { position: relative; padding: 76px 0 48px; text-align: center; overflow: hidden; }
+  /* Soft ambient color blobs instead of a flat black hero -- the kind of
+     depth most polished dev-tool landing pages lean on (Vercel, Linear,
+     Railway...) without needing an actual illustration. */
+  .hero-glow { position: absolute; border-radius: 50%; pointer-events: none; z-index: 0; filter: blur(90px); }
+  .hero-glow.a { width: 480px; height: 480px; top: -220px; left: 50%; transform: translateX(-58%);
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%); }
+  .hero-glow.b { width: 340px; height: 340px; top: 40px; left: 68%;
+    background: radial-gradient(circle, rgba(109, 40, 217, 0.28), transparent 70%); }
   .hero-owl-bg { position: absolute; top: -70px; left: 50%; transform: translateX(-50%);
-    opacity: 0.05; z-index: 0; pointer-events: none; }
+    opacity: 0.045; z-index: 0; pointer-events: none; }
   .hero > .wrap { position: relative; z-index: 1; }
-  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
-    color: var(--signal); font-weight: 600; }
-  .hero h1 { font-family: var(--sans); font-weight: 800; font-size: clamp(32px, 5.4vw, 50px);
-    line-height: 1.08; margin: 18px 0 14px; letter-spacing: -0.02em; }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--signal); font-weight: 600; display: inline-block; padding: 6px 15px; border-radius: 999px;
+    border: 1px solid var(--line); background: rgba(139, 92, 246, 0.07); }
+  .hero h1 { font-family: var(--sans); font-weight: 800; font-size: clamp(32px, 5.4vw, 52px);
+    line-height: 1.08; margin: 20px 0 14px; letter-spacing: -0.02em; }
+  .hero h1 .grad { background: linear-gradient(120deg, var(--signal) 10%, #c4b5fd 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero p.lead { font-size: 16.5px; color: var(--fog); max-width: 46ch; margin: 0 auto 30px; }
   .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
-  .trust-line { font-size: 12.5px; color: var(--fog); margin-bottom: 40px; }
+  .trust-line { font-size: 12.5px; color: var(--fog); margin-bottom: 44px; }
   .trust-line span { margin: 0 2px; }
   .btn { font-family: var(--sans); font-weight: 600; font-size: 14px; padding: 11px 22px;
-    border-radius: 7px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
-  .btn.primary { background: var(--signal); color: #fff; }
-  .btn.primary:hover { background: var(--signal-deep); }
+    border-radius: 7px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
+  .btn.primary { background: var(--signal); color: #fff; box-shadow: 0 10px 26px -10px rgba(139, 92, 246, 0.65); }
+  .btn.primary:hover { background: var(--signal-deep); transform: translateY(-2px);
+    box-shadow: 0 14px 30px -8px rgba(139, 92, 246, 0.8); }
   .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-  .btn.ghost:hover { border-color: var(--fog); }
+  .btn.ghost:hover { border-color: var(--fog); transform: translateY(-2px); }
 
   /* Browser-chrome frame around the screenshot -- makes it read as "a real
      product, in a real browser" instead of a bare image dropped on the page. */
-  .browser-frame { max-width: 860px; margin: 0 auto; border-radius: 10px; overflow: hidden;
-    border: 1px solid var(--line); background: var(--panel); box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6); }
+  .browser-frame-wrap { position: relative; max-width: 860px; margin: 0 auto; }
+  .browser-frame-glow { position: absolute; inset: -10% -6%; background:
+    radial-gradient(ellipse at center, rgba(139, 92, 246, 0.28), transparent 68%); filter: blur(50px); z-index: -1; }
+  .browser-frame { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--panel);
+    box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6); transition: transform 0.4s ease, box-shadow 0.4s ease; }
+  .browser-frame:hover { transform: translateY(-5px); box-shadow: 0 34px 70px -20px rgba(0, 0, 0, 0.7); }
   .browser-bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; background: var(--inset);
     border-bottom: 1px solid var(--line); }
   .browser-bar .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -71,6 +108,8 @@
   section { padding: 60px 0; border-top: 1px solid var(--line); }
   .sec-h { text-align: center; margin-bottom: 34px; }
   .sec-h h2 { font-family: var(--sans); font-weight: 800; font-size: 25px; margin-bottom: 8px; letter-spacing: -0.01em; }
+  .sec-h h2::after { content: ''; display: block; width: 36px; height: 3px; margin: 14px auto 0;
+    background: linear-gradient(90deg, var(--signal), var(--signal-deep)); border-radius: 2px; }
   .sec-h p { color: var(--fog); font-size: 14px; }
 
   /* How it works: three steps, GitHub -> webhook -> board */
@@ -79,21 +118,29 @@
   .how-step { flex: 1; text-align: center; max-width: 220px; }
   .how-icon { width: 48px; height: 48px; border-radius: 11px; background: var(--panel);
     border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 16px; color: var(--signal); }
+    margin: 0 auto 16px; color: var(--signal); transition: transform 0.25s ease, border-color 0.25s ease; }
+  .how-step:hover .how-icon { transform: translateY(-3px) scale(1.06); border-color: var(--signal); }
   .how-icon svg { display: block; }
   .how-step h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 7px; }
   .how-step p { font-size: 12.5px; color: var(--fog); line-height: 1.55; }
   .how-arrow { color: var(--line); font-size: 20px; padding-top: 13px; flex-shrink: 0; font-weight: 700; }
 
-  /* Convoy's owl, investigating -- a magnifying glass held up to one eye,
+  /* Convoy's owl, investigating -- a magnifying glass held up beside it,
      playing on "Convoy watches your pipelines closely". Not functional --
-     aria-hidden. */
-  .owl-detective { display: block; margin: 0 auto 8px; filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45)); }
+     aria-hidden. A slow bob keeps this one moment on the page feeling alive
+     without being distracting (small amplitude, slow period). */
+  @keyframes owlFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+  .owl-detective { position: relative; width: 130px; height: 130px; margin: 0 auto 10px;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.5)); animation: owlFloat 4.5s ease-in-out infinite; }
+  .owl-detective svg { position: absolute; inset: 0; }
+  .owl-detective svg.owl-mark { top: 14px; left: 0; width: 104px; height: 104px; }
 
   .install-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; }
   .install-tabs button { font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 18px;
-    border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fog); cursor: pointer; }
-  .install-tabs button.active { background: var(--signal); border-color: var(--signal); color: #fff; }
+    border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fog); cursor: pointer;
+    transition: all 0.2s ease; }
+  .install-tabs button.active { background: var(--signal); border-color: var(--signal); color: #fff;
+    box-shadow: 0 8px 18px -8px rgba(139, 92, 246, 0.6); }
   pre { background: var(--inset); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px;
     overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.7; max-width: 640px; margin: 0 auto; }
   pre .cmt { color: var(--fog); }
@@ -114,7 +161,8 @@
   .feature-icon { width: 34px; height: 34px; border-radius: 9px;
     background: radial-gradient(circle at 30% 25%, var(--signal), var(--signal-deep));
     display: flex; align-items: center; justify-content: center; color: #fff; margin-bottom: 12px;
-    box-shadow: 0 6px 14px -7px rgba(139, 92, 246, 0.5); }
+    box-shadow: 0 6px 14px -7px rgba(139, 92, 246, 0.5); transition: transform 0.25s ease; }
+  .feature:hover .feature-icon { transform: scale(1.1) rotate(-5deg); }
   .feature-icon svg { width: 16px; height: 16px; }
   .feature h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 6px; }
   .feature p { font-size: 12.5px; color: var(--fog); line-height: 1.55; }
@@ -144,6 +192,13 @@
     .how-steps { flex-direction: column; align-items: center; }
     .how-arrow { transform: rotate(90deg); }
     .maker-card { flex-direction: column; align-items: center; text-align: center; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .owl-detective { animation: none; }
+    .reveal, .reveal.pending { opacity: 1; transform: none; transition: none; }
+    .btn, .browser-frame, .feature, .feature-icon, .how-icon, header nav a::after { transition: none; }
   }
 </style>
 </head>
@@ -177,10 +232,12 @@
 
 <main>
   <section class="hero" style="border-top:0">
+    <div class="hero-glow a" aria-hidden="true"></div>
+    <div class="hero-glow b" aria-hidden="true"></div>
     <svg class="hero-owl-bg" width="480" height="480" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
     <div class="wrap">
       <span class="eyebrow">Self-hosted · Open source · MIT</span>
-      <h1>Every pipeline,<br>one screen, live.</h1>
+      <h1>Every pipeline,<br>one screen, <span class="grad">live.</span></h1>
       <p class="lead">
         A self-hosted GitHub Actions board for your whole org — think ArgoCD,
         but for CI. Every repo, every run, live, split into deploys and
@@ -191,17 +248,20 @@
         <a class="btn ghost" href="#install">Quick install ↓</a>
       </div>
       <p class="trust-line"><span>Self-hosted</span>·<span>Webhooks, not polling</span>·<span>MIT license</span></p>
-      <div class="browser-frame">
-        <div class="browser-bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="browser-url">convoy.your-internal-domain.com</span>
+      <div class="browser-frame-wrap">
+        <div class="browser-frame-glow" aria-hidden="true"></div>
+        <div class="browser-frame">
+          <div class="browser-bar">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="browser-url">convoy.your-internal-domain.com</span>
+          </div>
+          <img src="./assets/screenshot.png" alt="Convoy dashboard: a sidebar with status filters, and a grid of repo cards showing arrived (green), down (red), rolling (amber), and idle repos" loading="lazy">
         </div>
-        <img src="./assets/screenshot.png" alt="Convoy dashboard: a sidebar with status filters, and a grid of repo cards showing arrived (green), down (red), rolling (amber), and idle repos" loading="lazy">
       </div>
     </div>
   </section>
 
-  <section id="how">
+  <section id="how" class="reveal">
     <div class="sec-h">
       <h2>How it works</h2>
       <p>No polling, no pasted links — GitHub tells Convoy the moment something happens.</p>
@@ -237,7 +297,7 @@
     </div>
   </section>
 
-  <section>
+  <section class="reveal">
     <div class="sec-h">
       <h2>The problem it solves</h2>
       <p>The status quo is a browser full of tabs and a lot of manual refreshing.</p>
@@ -255,12 +315,26 @@
     </div>
   </section>
 
-  <section id="install">
-    <svg class="owl-detective" width="112" height="112" viewBox="0 0 170 170" aria-hidden="true">
-      <use href="#owlhead" x="8" y="20" width="128" height="128"/>
-      <circle cx="146" cy="86" r="20" fill="rgba(255,255,255,0.05)" stroke="var(--signal)" stroke-width="5"/>
-      <line x1="160" y1="100" x2="166" y2="135" stroke="var(--line)" stroke-width="8" stroke-linecap="round"/>
-    </svg>
+  <section id="install" class="reveal">
+    <div class="owl-detective" aria-hidden="true">
+      <svg class="owl-mark" viewBox="0 0 128 128" aria-hidden="true"><use href="#owlhead"/></svg>
+      <svg width="130" height="130" viewBox="0 0 130 130">
+        <defs>
+          <radialGradient id="lensGlass" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#fff" stop-opacity="0.4"/>
+            <stop offset="55%" stop-color="#fff" stop-opacity="0.08"/>
+            <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="handleMetal" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#8a8a98"/>
+            <stop offset="100%" stop-color="#1c1c22"/>
+          </linearGradient>
+        </defs>
+        <line x1="100" y1="72" x2="109" y2="108" stroke="url(#handleMetal)" stroke-width="9" stroke-linecap="round"/>
+        <circle cx="92" cy="50" r="27" fill="url(#lensGlass)" stroke="var(--signal)" stroke-width="4.5"/>
+        <circle cx="92" cy="50" r="27" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>
+      </svg>
+    </div>
     <div class="sec-h">
       <h2>Install</h2>
       <p>Self-hosted only — your CI data never leaves your own infrastructure.</p>
@@ -292,7 +366,7 @@ docker run -p 3000:3000 \
     </p>
   </section>
 
-  <section id="features">
+  <section id="features" class="reveal">
     <div class="sec-h">
       <h2>How it's built</h2>
       <p>Every decision here traded convenience for something a serious infra team would actually trust.</p>
@@ -343,7 +417,7 @@ docker run -p 3000:3000 \
     </div>
   </section>
 
-  <section id="about">
+  <section id="about" class="reveal">
     <div class="sec-h">
       <h2>Built by one person, in the open</h2>
       <p>No company behind this, no roadmap dictated by a board.</p>
@@ -385,6 +459,23 @@ docker run -p 3000:3000 \
 function showInstall(which) {
   document.querySelectorAll('.install-tabs button').forEach(b => b.classList.toggle('active', b.dataset.panel === which));
   document.querySelectorAll('.install-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + which));
+}
+
+// Scroll-reveal: progressive enhancement only -- .reveal elements are fully
+// visible by default (see the CSS), this just adds a fade+rise the first
+// time each one enters the viewport, then leaves it alone.
+if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  var revealEls = document.querySelectorAll('.reveal');
+  revealEls.forEach(function (el) { el.classList.add('pending'); });
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.remove('pending');
+        io.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+  revealEls.forEach(function (el) { io.observe(el); });
 }
 </script>
 </body>

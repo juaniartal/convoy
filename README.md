@@ -20,16 +20,21 @@ shows every repo's workflow runs on one screen, split into three views:
 Updates come in through GitHub webhooks, not polling. That's the part that
 lets it scale to hundreds of repos without hammering the GitHub API.
 
+> **Every instance is fully independent.** Running Convoy means creating
+> your *own* GitHub App, with your own credentials, on your own account or
+> org. Nobody who self-hosts Convoy ever needs mine, or anyone else's —
+> that's the whole point of self-hosted.
+
 ![Convoy dashboard](docs/assets/screenshot.png)
 
 ## Contents
 
 - [Why this exists](#why-this-exists)
 - [Quickstart](#quickstart)
+- [Choose how you'll run it](#choose-how-youll-run-it)
 - [Design principles](#design-principles)
 - [How classification works](#how-classification-works)
 - [Access control](#access-control)
-- [Running it for real](#running-it-for-real)
 - [Setup](#setup)
 - [Configuration reference](#configuration-reference)
 - [Status](#status)
@@ -62,6 +67,8 @@ anything.
 **Want it running on your own repos?**
 
 ```bash
+git clone <this repo> && cd convoy
+npm install
 cp .env.example .env
 npm run dev
 ```
@@ -76,9 +83,113 @@ installing it on whichever repos you want Convoy to watch. That's it —
 
 One thing worth knowing going in: this is meant to run as a persistent
 service, not something you open and close. Like ArgoCD, it's only useful
-while it's actually up. See ["Running it for real"](#running-it-for-real)
-below for Docker/Kubernetes, and the [full setup guide](#setup) if
-`npm run dev` doesn't just work for you.
+while it's actually up (or up whenever you personally need it — see the
+next section). See [Choose how you'll run it](#choose-how-youll-run-it)
+below, and the [full setup guide](#setup) if `npm run dev` doesn't just
+work for you.
+
+## Choose how you'll run it
+
+Three cases, and they need genuinely different webhook setups — worth
+reading before you pick one. Whichever you land on, it starts the same
+way: you need your own GitHub App (see [Setup](#setup) — the same
+walkthrough for everyone, regardless of where Convoy itself ends up
+running).
+
+### Case 1 — just trying it out
+
+`npm run demo` needs nothing at all (no GitHub App, no webhooks — see
+[Quickstart](#quickstart) above). Want real data while you evaluate it?
+`npm run dev` plus the smee.io relay from [Setup](#setup) is fine *for
+this*. smee is a free, ephemeral, third-party relay — exactly right for
+"let me see this work for twenty minutes," and exactly wrong for anything
+you plan to depend on (channels aren't meant to be permanent, and you
+don't control that relay's uptime).
+
+### Case 2 — one person, actually relying on it day to day
+
+Once you're past evaluating, stop using smee. Two ways to do this instead —
+pick whichever matches how you actually work, not which one is "more
+correct":
+
+**A. A small always-on VPS.** No Kubernetes needed. A cheap box (a $5-6/mo
+DigitalOcean/Hetzner droplet, a home server, even a Raspberry Pi) running
+Docker is enough to keep it up permanently:
+```bash
+docker run -d --restart=always -p 3000:3000 \
+  -e APP_ID=... \
+  -e WEBHOOK_SECRET=... \
+  -e PRIVATE_KEY_PATH=/app/private-key.pem \
+  -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
+  -v $(pwd)/convoy.yaml:/app/convoy.yaml:ro \
+  ghcr.io/juaniartal/convoy:latest
+```
+`--restart=always` means it survives the box rebooting. Point your GitHub
+App's webhook URL at `http://<your-server>:3000/api/github/webhooks` — put
+a real domain and TLS in front if you want it cleaner (a reverse proxy
+like Caddy makes that close to a one-liner). The box itself has a public
+IP, so GitHub reaches it directly — no relay of any kind needed here.
+
+**B. Local Kubernetes, only running when you're actually looking.** If you
+already run Docker Desktop / kind / minikube for other things, you don't
+need a VPS at all — install the Helm chart locally and bring it up only
+when you want to check on something:
+```bash
+helm install convoy ./helm/convoy \
+  --set-file github.privateKey=./private-key.pem \
+  --set github.appId=<APP_ID> \
+  --set github.webhookSecret=<WEBHOOK_SECRET>
+
+kubectl port-forward svc/convoy-convoy 3000:80   # whenever you want to look
+```
+Unlike option A, a port-forward is only reachable from your own machine —
+GitHub can't deliver anything to it directly. Two ways to handle that:
+- **Don't bother.** Leave the webhook URL pointed at nothing reachable.
+  Every delivery shows as failed in GitHub's UI (harmless), and
+  reconciliation still catches everything up automatically within a few
+  minutes of you bringing Convoy back up. This is genuinely how I ran my
+  own instance for most of building this.
+- **Want it truly live instead of "catches up in a few minutes"?** Use a
+  tunnel with a **static/persistent domain** — a free [ngrok](https://ngrok.com)
+  account gives you one for exactly this. Point the tunnel at
+  `localhost:3000` whenever Convoy is up, and set your GitHub App's webhook
+  URL to that ngrok domain *once* — since the domain doesn't change between
+  runs, you never have to touch the App's settings again, just start/stop
+  the tunnel alongside Convoy itself. This is *not* smee: it's a stable
+  address you control, not an ephemeral test channel.
+
+Either way, once it's reachable by anyone but you, set `CONVOY_API_KEY` —
+one env var gets you a real login page instead of a wide-open dashboard.
+See [Access control](#access-control).
+
+### Case 3 — a team, always-on in a shared cluster
+
+This is what the Helm chart is actually built for:
+```bash
+helm install convoy ./helm/convoy \
+  --set-file github.privateKey=./private-key.pem \
+  --set github.appId=<APP_ID> \
+  --set github.webhookSecret=<WEBHOOK_SECRET> \
+  --set ingress.host=convoy.your-internal-domain.com
+```
+See `helm/convoy/values.yaml` for the full set of configurable values.
+Pulling from a private registry? You'll want `imagePullSecrets` too. Before
+putting this behind a real Ingress host, turn on a login — either
+`CONVOY_API_KEY` for a single shared password, or `CONVOY_OIDC_*` to add a
+"Log in with \<your provider\>" button backed by Azure AD/Google/Okta/etc.,
+whatever your team already uses. See [Access control](#access-control) for
+both.
+
+Already manage credentials through External Secrets Operator, Vault, or a
+cloud secret manager instead of plain `--set`/`--set-file`? Set
+`secret.create=false` and point Convoy at a Secret you provide yourself —
+there are working examples for both **Azure Key Vault** and **AWS Secrets
+Manager** under `helm/convoy/examples/` (same shape works for GCP Secret
+Manager or Vault too, just swap the `secretStoreRef`).
+
+Either way, the last step is the same: in your GitHub App's settings, set
+the webhook URL to your deployed instance's `/api/github/webhooks`
+endpoint.
 
 ## Design principles
 
@@ -94,11 +205,11 @@ instead of leaving people to guess:
   slow periodic reconciliation pass too, but that only exists to catch
   webhook deliveries GitHub failed to send — it's not how Convoy stays up
   to date under normal operation.
-- **One shared credential, not per-user GitHub logins.** Convoy doesn't
-  implement "Login with GitHub" for your team. Who can *view* the dashboard
-  is left to whatever your org already uses to gate internal tools (SSO,
-  VPN, an authenticating ingress) — see Access control below. The GitHub
-  App is the only credential Convoy ever uses to talk to GitHub.
+- **One GitHub credential, separate from who can view the dashboard.** The
+  GitHub App is the only credential Convoy ever uses to talk to GitHub —
+  it's not tied to any individual's account. Who can *view* the dashboard
+  is a different question, answered by an optional shared access key or
+  OIDC login (see Access control below), or left to your network entirely.
 - **Minimal permissions.** The App requests `actions: read` and
   `metadata: read`. Nothing else. It can't read file contents, can't write
   anything, can't touch your workflows.
@@ -150,13 +261,11 @@ irrelevant repos.
 
 ## Access control
 
-> **⚠️ Convoy has no login of its own — don't expose it directly to the
-> public internet.** This is the same call Prometheus and most self-hosted,
-> read-only monitoring tools make: building and maintaining a real auth
-> system is a lot of complexity for a tool that can't actually change
-> anything, so Convoy expects to sit behind whatever access control your
-> network already has. That's a deliberate v1 choice, not something I
-> forgot — see below for how to actually do it.
+> **⚠️ By default, Convoy has no login of its own — don't expose it
+> directly to the public internet without turning one on.** Neither
+> `CONVOY_API_KEY` nor `CONVOY_OIDC_*` set means anyone who reaches the URL
+> sees the dashboard, no questions asked. Turning one of them on takes one
+> env var.
 
 Publishing Convoy's source code doesn't expose anything about your own
 running instance. Your GitHub App's private key and webhook secret live
@@ -164,56 +273,32 @@ only in your own `.env`/Kubernetes Secret, never in git. The one thing you
 do need to think about: the webhook endpoint (`/api/github/webhooks`) has
 to be public so GitHub can reach it, and that part's fine to leave open — it
 verifies GitHub's signature and rejects anything else. The **dashboard
-itself** isn't authenticated by default, so if it's reachable from the
-public internet, put something in front of it:
+itself** needs one of the following if it's reachable from anywhere you
+don't fully trust:
 
-1. **Put it behind your existing SSO/VPN/authenticating ingress.** The
-   normal way most internal tools are gated. Convoy doesn't need to know
-   who you are, it just needs to not be reachable by people who shouldn't
-   see it.
-2. **Set `CONVOY_API_KEY`** if you don't have (1) yet. Accepts either
-   `Authorization: Bearer <key>` (for scripts or reverse proxies) or plain
-   HTTP Basic Auth with the key as the password and any username — a
-   browser tab gets a real native login prompt, no login page for Convoy to
-   build.
-3. **Want per-person login instead of one shared password?** A free tunnel
-   with built-in auth (Cloudflare Tunnel + Cloudflare Access, for example)
-   can require signing in with Google/GitHub before traffic ever reaches
-   Convoy, without Convoy having to implement any of that itself.
-
-## Running it for real
-
-**Docker:**
-```bash
-docker run -p 3000:3000 \
-  -e APP_ID=... \
-  -e WEBHOOK_SECRET=... \
-  -e PRIVATE_KEY_PATH=/app/private-key.pem \
-  -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
-  -v $(pwd)/convoy.yaml:/app/convoy.yaml:ro \
-  ghcr.io/juaniartal/convoy:latest
-```
-
-**Kubernetes (Helm):**
-```bash
-helm install convoy ./helm/convoy \
-  --set-file github.privateKey=./private-key.pem \
-  --set github.appId=<APP_ID> \
-  --set github.webhookSecret=<WEBHOOK_SECRET> \
-  --set ingress.host=convoy.your-internal-domain.com
-```
-
-See `helm/convoy/values.yaml` for the full set of configurable values.
-Pulling from a private registry? You'll want `imagePullSecrets` too.
-
-Already manage credentials through External Secrets Operator, Vault, or a
-cloud secret manager, instead of plain `--set`/`--set-file`? Set
-`secret.create=false` and point Convoy at a Secret you provide yourself.
-There's an Azure Key Vault example under `helm/convoy/examples/` — the
-same shape works for AWS, GCP, or Vault.
-
-In your GitHub App settings, set the webhook URL to your deployed
-instance's `/api/github/webhooks` endpoint.
+1. **Set `CONVOY_API_KEY`.** Gates the dashboard behind Convoy's own login
+   page with this as the shared access key. Scripts and reverse proxies can
+   still send `Authorization: Bearer <key>` directly instead of going
+   through the page. One password for the whole team, no accounts to
+   manage — the simplest option, and enough for most self-hosters.
+2. **Set `CONVOY_OIDC_*` for real SSO.** Adds a "Log in with \<provider\>"
+   button to the same login page, backed by any standard OIDC provider —
+   Azure AD, Google, Okta, whatever your org already uses. Needs an app
+   registration at your provider first:
+   ```bash
+   CONVOY_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0
+   CONVOY_OIDC_CLIENT_ID=<from your app registration>
+   CONVOY_OIDC_CLIENT_SECRET=<from your app registration>
+   CONVOY_OIDC_REDIRECT_URI=https://convoy.your-domain.com/api/auth/oidc/callback
+   ```
+   That last value has to exactly match the redirect URI registered at the
+   provider. Both `CONVOY_API_KEY` and `CONVOY_OIDC_*` can be set together
+   — the login page shows the SSO button and the access-key field, either
+   one gets you in.
+3. **Or skip both and put it behind your existing SSO/VPN/authenticating
+   ingress instead.** Convoy doesn't need to know who you are, it just
+   needs to not be reachable by people who shouldn't see it — if your
+   network already handles that, there's nothing else to configure.
 
 ## Setup
 
@@ -343,8 +428,8 @@ later if you want it live.
 
 ### 2. Run it
 
-See ["Running it for real"](#running-it-for-real) above for the Docker and
-Helm commands.
+See [Choose how you'll run it](#choose-how-youll-run-it) above for the
+Docker and Helm commands, whichever path fits.
 
 ### 3. Point GitHub at it
 
@@ -377,5 +462,7 @@ MIT — see `LICENSE`.
 ## Maintainer
 
 This is my first real open-source project. Built and maintained by
-[Juan Ignacio](https://www.linkedin.com/in/juanignaciodev/) — issues and
-PRs are welcome, see `CONTRIBUTING.md`.
+[Juan Ignacio](https://www.linkedin.com/in/juanignaciodev/), a DevOps/SRE
+engineer — I built Convoy to solve a real problem on my own team, and I
+still run it myself day to day. Issues and PRs are welcome, see
+`CONTRIBUTING.md`.
