@@ -32,6 +32,10 @@ lets it scale to hundreds of repos without hammering the GitHub API.
 - [Why this exists](#why-this-exists)
 - [Quickstart](#quickstart)
 - [Choose how you'll run it](#choose-how-youll-run-it)
+  - [Case 1 — just trying it out](#case-1--just-trying-it-out)
+  - [Case 2 — one person, actually relying on it day to day](#case-2--one-person-actually-relying-on-it-day-to-day)
+  - [Case 3 — a team, always-on in a shared cluster](#case-3--a-team-always-on-in-a-shared-cluster)
+  - [Is it actually real-time?](#is-it-actually-real-time)
 - [Design principles](#design-principles)
 - [How classification works](#how-classification-works)
 - [Access control](#access-control)
@@ -162,7 +166,8 @@ Either way, once it's reachable by anyone but you, set `CONVOY_API_KEY` —
 one env var gets you a real login page instead of a wide-open dashboard.
 See [Access control](#access-control).
 
-#### New to Docker? Full walkthrough for option A, from zero
+<details>
+<summary><strong>New to Docker? Full walkthrough for option A, from zero</strong></summary>
 
 Every step needed to get a real domain serving Convoy over HTTPS,
 permanently, on a plain VPS — not assuming you've done any of this before.
@@ -223,6 +228,8 @@ permanently, on a plain VPS — not assuming you've done any of this before.
    that's your dashboard, permanently up, with real HTTPS, no relay of any
    kind between GitHub and your server.
 
+</details>
+
 ### Case 3 — a team, always-on in a shared cluster
 
 This is what the Helm chart is actually built for:
@@ -264,7 +271,8 @@ Either way, the last step is the same: in your GitHub App's settings, set
 the webhook URL to your deployed instance's `/api/github/webhooks`
 endpoint.
 
-#### New to Kubernetes? Full walkthrough, from zero
+<details>
+<summary><strong>New to Kubernetes? Full walkthrough, from zero</strong></summary>
 
 Covers both a cluster you manage yourself and Azure AKS — everything
 between "I have nothing" and a real HTTPS domain serving Convoy inside
@@ -367,6 +375,8 @@ your cluster, permanently.
    `{"status":"ok",...}` within a minute or so of the cert-manager
    certificate finishing issuance. Open the domain in a browser — that's
    your team's dashboard, live, inside your own cluster.
+
+</details>
 
 ### Is it actually real-time?
 
@@ -572,7 +582,8 @@ an error. Stop `npm run dev` (Ctrl+C) and run it again once; the first
 process was still running in "setup mode" and won't serve the real
 dashboard until it restarts with the credentials that were just written.
 
-#### If `npm run dev` crashes with `SmeeClient is not a constructor`
+<details>
+<summary><strong>If <code>npm run dev</code> crashes with <code>SmeeClient is not a constructor</code></strong></summary>
 
 I ran into this myself. It's a known incompatibility between Probot 14's
 built-in webhook proxy (which fetches `smee-client@5.0.0` via `npx` at
@@ -663,6 +674,8 @@ minutes via reconciliation — you just won't see changes the instant they
 happen. Good enough for "does this work at all", set up the smee tunnel
 later if you want it live.
 
+</details>
+
 ### 2. Run it
 
 See [Choose how you'll run it](#choose-how-youll-run-it) above for the
@@ -675,22 +688,36 @@ instance's `/api/github/webhooks` endpoint.
 
 ## Configuration reference
 
+**GitHub App**
+
 | Env var | Required | Description |
 |---|---|---|
 | `APP_ID` | yes | GitHub App ID |
 | `PRIVATE_KEY_PATH` or `PRIVATE_KEY` | yes (one of the two) | Path to the App's private key `.pem`, or its raw contents (what the Helm chart uses, via a Secret) |
 | `WEBHOOK_SECRET` | yes | GitHub App webhook secret |
 | `PORT` | no (default `3000`) | HTTP port |
-| `CONVOY_API_KEY` | no | If set, gates all requests behind a Bearer token or Basic Auth (any username, this as the password) |
 | `CONVOY_CONFIG_PATH` | no (default `./convoy.yaml`) | Path to classification overrides |
+
+**Access control** — see [Access control](#access-control) for the full picture
+
+| Env var | Required | Description |
+|---|---|---|
+| `CONVOY_API_KEY` | no | Shared access key. Gates the dashboard behind Convoy's own login page; scripts can also send `Authorization: Bearer <key>` directly |
+| `CONVOY_OIDC_ISSUER_URL` | no (all four together, or none) | Your OIDC provider's issuer URL (Azure AD, Google, Okta, ...) |
+| `CONVOY_OIDC_CLIENT_ID` | no | Client ID from your provider's app registration |
+| `CONVOY_OIDC_CLIENT_SECRET` | no | Client secret from the same app registration |
+| `CONVOY_OIDC_REDIRECT_URI` | no | Must exactly match what's registered at the provider, ending in `/api/auth/oidc/callback` |
+| `CONVOY_OIDC_BUTTON_LABEL` | no (default `Log in with SSO`) | Text on the login page's SSO button |
+| `CONVOY_OIDC_ALLOW_INSECURE` | no | **Dev/test only.** Lets `CONVOY_OIDC_ISSUER_URL` point at a plain-HTTP IdP for local testing. Never set this against a real deployment — every real provider is HTTPS |
 
 ## Status
 
 Early days. v1 is focused on getting the core loop right — webhooks,
-classification, live dashboard — for a single org, self-hosted. No
-history/analytics, no multi-org support, no fancier access control yet.
-That's on purpose, not an oversight; see open issues for what's actually
-planned.
+classification, live dashboard, real-time reliability, and login (shared
+key or OIDC/SSO) — for a single org, self-hosted. No history/analytics, no
+multi-org support, no per-user accounts or audit trail (one shared login
+or SSO, not individual identities). That's on purpose, not an oversight;
+see open issues for what's actually planned.
 
 ## License
 
