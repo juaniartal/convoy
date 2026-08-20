@@ -74,13 +74,33 @@ describe('listWorkflowRunsForRepo', () => {
     expect(result.runs).toEqual([]);
   });
 
-  it('treats a 403 as a skip, not an error', async () => {
+  it('treats a plain 403 (Actions disabled) as a skip, not an error', async () => {
     const client: GithubClient = {
       paginate: vi.fn(),
       request: vi.fn().mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 })),
     };
     const result = await listWorkflowRunsForRepo(client, 'org', 'repo');
     expect(result.skipped).toBe(true);
+    expect(result.rateLimited).toBe(false);
+  });
+
+  // A rate-limit-exceeded response is also a plain 403 at the status-code
+  // level -- distinguishing it by the x-ratelimit-remaining header is the
+  // whole point, since treating it as a skip used to mark a repo
+  // "reconciled" with no real data behind that claim.
+  it('distinguishes a rate-limit-exceeded 403 from an Actions-disabled 403', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn(),
+      request: vi.fn().mockRejectedValue(
+        Object.assign(new Error('API rate limit exceeded'), {
+          status: 403,
+          response: { headers: { 'x-ratelimit-remaining': '0' } },
+        }),
+      ),
+    };
+    const result = await listWorkflowRunsForRepo(client, 'org', 'repo');
+    expect(result.rateLimited).toBe(true);
+    expect(result.skipped).toBe(false);
   });
 
   it('rethrows unexpected errors instead of silently skipping', async () => {
