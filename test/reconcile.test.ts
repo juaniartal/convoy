@@ -164,6 +164,35 @@ describe('runReconciliation', () => {
     expect(jobsCall).toBeUndefined();
   });
 
+  it('one repo failing unexpectedly does not stop the rest of the batch from being processed', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn().mockResolvedValue([
+        { id: 1, full_name: 'org/flaky', private: true, default_branch: 'main', archived: false },
+        { id: 2, full_name: 'org/healthy', private: true, default_branch: 'main', archived: false },
+      ]),
+      request: vi.fn(async (route: string, params?: Record<string, unknown>) => {
+        if (route === 'GET /repos/{owner}/{repo}/actions/runs') {
+          if (params?.repo === 'flaky')
+            throw Object.assign(new Error('ECONNRESET'), { status: 500 });
+          return { data: { workflow_runs: [fakeRun()] }, headers: {} };
+        }
+        if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs') {
+          return { data: { jobs: [] }, headers: {} };
+        }
+        throw new Error(`unexpected route ${route}`);
+      }),
+    };
+    const state = new StateStore();
+    const onRepoError = vi.fn();
+
+    const result = await runReconciliation(client, state, emptyConfig, { onRepoError });
+
+    expect(onRepoError).toHaveBeenCalledWith('org/flaky', expect.any(Error));
+    expect(result.reposProcessed).toBe(1);
+    expect(state.getRepo('org/healthy')?.lastReconciledAt).not.toBeNull();
+    expect(state.getRepo('org/flaky')?.lastReconciledAt).toBeNull();
+  });
+
   it('marks a skipped (403/404) repo as reconciled without throwing', async () => {
     const client: GithubClient = {
       paginate: vi.fn().mockResolvedValue([

@@ -36,6 +36,30 @@ describe('classifyRun (default heuristic, no override)', () => {
   it('treats a null head_branch as a pipeline rather than throwing', () => {
     expect(classifyRun({ event: 'push', headBranch: null, workflowName: 'CI' })).toBe('pipeline');
   });
+
+  it('still matches build/pre-release metadata correctly after the ReDoS fix', () => {
+    expect(classifyRun({ event: 'push', headBranch: '1.2.3+build.5', workflowName: 'CI' })).toBe(
+      'deploy',
+    );
+    expect(
+      classifyRun({ event: 'push', headBranch: '1.2.3-beta+build5', workflowName: 'CI' }),
+    ).toBe('deploy');
+  });
+
+  // headBranch is attacker-influenceable (anyone who can push a tag/branch
+  // to a repo this App is installed on) -- a naive version of this regex
+  // was catastrophically backtracking on strings with many dashes (CodeQL
+  // js/redos). This would hang for minutes on the old pattern; the fixed
+  // one rejects it near-instantly. The test's own timeout is what actually
+  // catches a regression, not the assertion itself.
+  it('rejects a long run of dashes without catastrophic backtracking', () => {
+    const malicious = `v1.0.0${'-'.repeat(50)}!`;
+    const start = Date.now();
+    expect(classifyRun({ event: 'push', headBranch: malicious, workflowName: 'CI' })).toBe(
+      'pipeline',
+    );
+    expect(Date.now() - start).toBeLessThan(100);
+  });
 });
 
 describe('classifyRun (with an override)', () => {

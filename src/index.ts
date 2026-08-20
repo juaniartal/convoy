@@ -95,7 +95,15 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
 
       for (const installation of installations) {
         const client = await probotApp.auth(installation.id);
-        const result = await runReconciliation(client, state, config, options);
+        const result = await runReconciliation(client, state, config, {
+          ...options,
+          onRepoError: (repoFullName, err) => {
+            probotApp.log.warn(
+              { repoFullName, err },
+              'reconciliation failed for this repo, will retry next pass',
+            );
+          },
+        });
         if (result.aborted) {
           probotApp.log.warn(
             { installationId: installation.id },
