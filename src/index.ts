@@ -1,9 +1,10 @@
 import { fileURLToPath } from 'node:url';
-import { ApplicationFunction } from 'probot';
+import { ApplicationFunction, Context } from 'probot';
 import { createApiApp } from './api/routes.js';
 import { loadOidcSettings, OidcClient } from './api/oidc.js';
 import { loadConfig } from './config/overrides.js';
 import { watchActiveRuns } from './core/activeRunWatcher.js';
+import { classifyRun } from './core/classify.js';
 import { runReconciliation } from './core/reconcile.js';
 import { StateStore } from './core/state.js';
 import { handleWorkflowJob } from './handlers/workflowJob.js';
@@ -28,6 +29,24 @@ const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
  * cheap single-run request per active run otherwise -- see
  * activeRunWatcher.ts for the exact rate-limit accounting. */
 const ACTIVE_RUN_POLL_INTERVAL_MS = 30 * 1000;
+
+/** The gap this closes: a release wave firing across many repos at once,
+ * where GitHub drops most of the individual `requested` webhooks (seen
+ * directly, not theoretical -- roughly 30-45% missing in bursts against a
+ * real installation). Convoy has no way to know a run exists until *some*
+ * webhook for it arrives, or reconciliation finds it -- so whichever
+ * webhook DOES get through now kicks off an immediate full sweep instead
+ * of waiting up to 5 minutes, and the rest of the wave shows up within
+ * seconds instead of minutes. The cooldown stops the other 29 webhooks in
+ * the same burst from each triggering their own redundant sweep. */
+const DEPLOY_TRIGGER_COOLDOWN_MS = 20 * 1000;
+
+/** How long after the immediate sweep to run a follow-up one. Confirmed
+ * directly: GitHub itself can take a few seconds to finish creating
+ * workflow runs across a large simultaneous batch, so a sweep that fires
+ * within ~1 second of the first webhook can genuinely find nothing yet for
+ * repos GitHub hasn't gotten to. */
+const DEPLOY_TRIGGER_FOLLOWUP_DELAY_MS = 15 * 1000;
 
 /** Every restart starts from empty in-memory state (no database), so the
  * very first reconciliation pass needs a much wider window than the
@@ -82,7 +101,35 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
     };
   }
 
-  probotApp.on('workflow_run', trackWebhook(handleWorkflowRun(state, config)));
+  let lastDeployTriggeredReconcileAt = 0;
+  const runWorkflowRunHandler = handleWorkflowRun(state, config);
+
+  probotApp.on(
+    'workflow_run',
+    trackWebhook(async (context: Context<'workflow_run'>) => {
+      await runWorkflowRunHandler(context);
+
+      const run = context.payload.workflow_run;
+      const override = config.overrides.get(context.payload.repository.full_name);
+      const category = classifyRun(
+        { event: run.event, headBranch: run.head_branch, workflowName: run.name ?? '' },
+        override,
+      );
+      if (category !== 'deploy') return;
+
+      const now = Date.now();
+      if (now - lastDeployTriggeredReconcileAt < DEPLOY_TRIGGER_COOLDOWN_MS) return;
+      lastDeployTriggeredReconcileAt = now;
+      void reconcileAll();
+      // Confirmed directly: GitHub can still be mid-creating the *other*
+      // runs in the same simultaneous batch when this first sweep runs --
+      // an immediate reconciliation can genuinely find nothing for a repo
+      // whose run GitHub hadn't finished registering yet, not because of
+      // any bug here. This follow-up catches whatever wasn't there yet the
+      // first time, well before the next regular 5-minute pass would.
+      setTimeout(() => void reconcileAll(), DEPLOY_TRIGGER_FOLLOWUP_DELAY_MS);
+    }),
+  );
   probotApp.on('workflow_job', trackWebhook(handleWorkflowJob(state, config)));
   probotApp.on('installation.created', trackWebhook(handleInstallationCreated(state)));
   probotApp.on('installation.deleted', trackWebhook(handleInstallationDeleted(state)));
