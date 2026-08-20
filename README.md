@@ -162,6 +162,67 @@ Either way, once it's reachable by anyone but you, set `CONVOY_API_KEY` —
 one env var gets you a real login page instead of a wide-open dashboard.
 See [Access control](#access-control).
 
+#### New to Docker? Full walkthrough for option A, from zero
+
+Every step needed to get a real domain serving Convoy over HTTPS,
+permanently, on a plain VPS — not assuming you've done any of this before.
+
+1. **Get a VPS.** Any provider works (DigitalOcean, Hetzner, a spare
+   machine at home with port forwarding). You need: a public IP address,
+   and root/sudo access. $5-6/mo is plenty — Convoy is light.
+2. **Install Docker on it.** SSH in, then:
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   ```
+   That's Docker's own official install script, works on basically every
+   Linux distro. (On your own laptop instead of a VPS, install Docker
+   Desktop from docker.com — but a laptop that sleeps isn't "always on",
+   which is the whole point of this case.)
+3. **Point a domain at it.** Buy a domain anywhere (Namecheap, Google
+   Domains, whatever), or use a subdomain of one you already own. In your
+   DNS provider's dashboard, add an **A record**: name `convoy` (or
+   whatever subdomain), value = your VPS's public IP. DNS changes can take
+   a few minutes to a few hours to propagate; `dig convoy.yourdomain.com`
+   should eventually show your VPS's IP.
+4. **Create the GitHub App.** Follow [Setup](#setup) below — same steps
+   regardless of where Convoy ends up running. Save the App ID, the
+   downloaded private key, and the webhook secret.
+5. **Run Convoy and a reverse proxy together**, so you get real HTTPS
+   without touching certificates by hand — Caddy gets one automatically
+   from Let's Encrypt the moment it sees a real domain pointed at it:
+   ```bash
+   docker network create convoy-net
+
+   docker run -d --name convoy --restart=always --network convoy-net \
+     -e APP_ID=<APP_ID> \
+     -e WEBHOOK_SECRET=<WEBHOOK_SECRET> \
+     -e PRIVATE_KEY_PATH=/app/private-key.pem \
+     -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
+     ghcr.io/juaniartal/convoy:latest
+
+   cat > Caddyfile <<'EOF'
+   convoy.yourdomain.com {
+     reverse_proxy convoy:3000
+   }
+   EOF
+
+   docker run -d --name caddy --restart=always --network convoy-net \
+     -p 80:80 -p 443:443 \
+     -v caddy_data:/data \
+     -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile \
+     caddy:2
+   ```
+   Replace `convoy.yourdomain.com` with your real domain in the Caddyfile.
+   Give it a minute — Caddy needs to request and validate the certificate
+   the first time.
+6. **Point the GitHub App's webhook URL** at
+   `https://convoy.yourdomain.com/api/github/webhooks` (in the App's
+   settings page).
+7. **Check it's alive**: `curl https://convoy.yourdomain.com/api/healthz`
+   should return `{"status":"ok",...}`. Open the domain in a browser —
+   that's your dashboard, permanently up, with real HTTPS, no relay of any
+   kind between GitHub and your server.
+
 ### Case 3 — a team, always-on in a shared cluster
 
 This is what the Helm chart is actually built for:
@@ -202,6 +263,110 @@ Manager or Vault too, just swap the `secretStoreRef`).
 Either way, the last step is the same: in your GitHub App's settings, set
 the webhook URL to your deployed instance's `/api/github/webhooks`
 endpoint.
+
+#### New to Kubernetes? Full walkthrough, from zero
+
+Covers both a cluster you manage yourself and Azure AKS — everything
+between "I have nothing" and a real HTTPS domain serving Convoy inside
+your cluster, permanently.
+
+1. **Get a cluster.**
+   - **Azure AKS:**
+     ```bash
+     az group create --name convoy-rg --location eastus
+     az aks create --resource-group convoy-rg --name convoy-aks \
+       --node-count 1 --generate-ssh-keys
+     az aks get-credentials --resource-group convoy-rg --name convoy-aks
+     ```
+     (One node is enough for Convoy itself; bump `--node-count` if this
+     cluster runs other things too.)
+   - **Your own cluster, nothing set up yet:** [k3s](https://k3s.io) is
+     the fastest way to get a real, working cluster on any Linux box:
+     `curl -sfL https://get.k3s.io | sh -`. Already have a cluster and
+     `kubectl` pointed at it? Skip to step 2.
+2. **Install `kubectl` and Helm**, if you don't have them —
+   [kubernetes.io/docs/tasks/tools](https://kubernetes.io/docs/tasks/tools/)
+   and:
+   ```bash
+   curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+   ```
+3. **Install an Ingress controller** — this is what actually routes
+   `https://convoy.yourdomain.com` to the right pod inside the cluster; a
+   fresh cluster doesn't have one yet:
+   ```bash
+   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+   helm repo update
+   helm install ingress-nginx ingress-nginx/ingress-nginx \
+     --namespace ingress-nginx --create-namespace
+   ```
+   Get its external IP (on AKS or any cloud, this appears within a minute
+   or two; on bare-metal k3s with no cloud load balancer, it can stay
+   `<pending>` — that needs something like [MetalLB](https://metallb.io/),
+   a bare-metal-specific extra step outside what this guide covers):
+   ```bash
+   kubectl get svc -n ingress-nginx ingress-nginx-controller
+   ```
+4. **Point a domain at that IP** — same as the Docker walkthrough above:
+   an A record in your DNS provider, name = your subdomain, value = the
+   IP from step 3.
+5. **Install cert-manager**, so HTTPS certificates get issued and renewed
+   automatically instead of by hand:
+   ```bash
+   helm repo add jetstack https://charts.jetstack.io
+   helm repo update
+   helm install cert-manager jetstack/cert-manager \
+     --namespace cert-manager --create-namespace --set crds.enabled=true
+   ```
+   Then tell it how to issue certificates (swap in a real email — Let's
+   Encrypt uses it for expiry notices, nothing else):
+   ```bash
+   cat <<'EOF' | kubectl apply -f -
+   apiVersion: cert-manager.io/v1
+   kind: ClusterIssuer
+   metadata:
+     name: letsencrypt
+   spec:
+     acme:
+       server: https://acme-v02.api.letsencrypt.org/directory
+       email: you@example.com
+       privateKeySecretRef:
+         name: letsencrypt-key
+       solvers:
+         - http01:
+             ingress:
+               ingressClassName: nginx
+   EOF
+   ```
+6. **Create the GitHub App** — [Setup](#setup) below, same steps
+   regardless of where Convoy runs.
+7. **Install Convoy itself.** Put this in `convoy-values.yaml`:
+   ```yaml
+   github:
+     appId: '<APP_ID>'
+     webhookSecret: '<WEBHOOK_SECRET>'
+   ingress:
+     enabled: true
+     className: nginx
+     host: convoy.yourdomain.com
+     annotations:
+       cert-manager.io/cluster-issuer: letsencrypt
+     tls:
+       enabled: true
+       secretName: convoy-tls
+   ```
+   then:
+   ```bash
+   helm install convoy ./helm/convoy \
+     -f convoy-values.yaml \
+     --set-file github.privateKey=./private-key.pem
+   ```
+8. **Point the GitHub App's webhook URL** at
+   `https://convoy.yourdomain.com/api/github/webhooks`.
+9. **Check it's alive**:
+   `curl https://convoy.yourdomain.com/api/healthz` should return
+   `{"status":"ok",...}` within a minute or so of the cert-manager
+   certificate finishing issuance. Open the domain in a browser — that's
+   your team's dashboard, live, inside your own cluster.
 
 ### Is it actually real-time?
 
