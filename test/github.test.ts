@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  getWorkflowRun,
   GithubClient,
   listInstallationRepos,
   listWorkflowRunsForRepo,
@@ -109,5 +110,45 @@ describe('listWorkflowRunsForRepo', () => {
       request: vi.fn().mockRejectedValue(Object.assign(new Error('Server Error'), { status: 500 })),
     };
     await expect(listWorkflowRunsForRepo(client, 'org', 'repo')).rejects.toThrow('Server Error');
+  });
+});
+
+describe('getWorkflowRun', () => {
+  it('returns the single run on success', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn(),
+      request: vi.fn().mockResolvedValue({
+        data: { id: 1, status: 'completed' },
+        headers: { 'x-ratelimit-remaining': '4321' },
+      }),
+    };
+    const result = await getWorkflowRun(client, 'org', 'repo', 1);
+    expect(result.run).toEqual({ id: 1, status: 'completed' });
+    expect(result.rateRemaining).toBe(4321);
+    expect(result.rateLimited).toBe(false);
+  });
+
+  it('returns run: null for a deleted run (404), not an error', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn(),
+      request: vi.fn().mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 })),
+    };
+    const result = await getWorkflowRun(client, 'org', 'repo', 1);
+    expect(result.run).toBeNull();
+  });
+
+  it('distinguishes a rate-limit-exceeded 403 the same way listWorkflowRunsForRepo does', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn(),
+      request: vi.fn().mockRejectedValue(
+        Object.assign(new Error('API rate limit exceeded'), {
+          status: 403,
+          response: { headers: { 'x-ratelimit-remaining': '0' } },
+        }),
+      ),
+    };
+    const result = await getWorkflowRun(client, 'org', 'repo', 1);
+    expect(result.rateLimited).toBe(true);
+    expect(result.run).toBeNull();
   });
 });

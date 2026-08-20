@@ -140,7 +140,7 @@ function hasChanged(state: StateStore, repoFullName: string, run: WorkflowRunLis
   return existing.status !== run.status || existing.conclusion !== run.conclusion;
 }
 
-function toRunUpsertInput(
+export function toRunUpsertInput(
   run: WorkflowRunListItem,
   category: 'deploy' | 'pipeline',
 ): RunUpsertInput {
@@ -161,7 +161,7 @@ function toRunUpsertInput(
   };
 }
 
-function toJobState(job: {
+export function toJobState(job: {
   id: number;
   name: string;
   status: string;

@@ -250,4 +250,29 @@ describe('StateStore', () => {
     );
     expect(store.getSnapshot().runs.map((r) => r.id)).toEqual([2, 1]);
   });
+
+  describe('listActiveRuns', () => {
+    it('only includes runs not in a terminal (completed) state', () => {
+      const store = new StateStore();
+      store.upsertRun('org/repo', makeRun({ id: 1, status: 'in_progress' }));
+      store.upsertRun('org/repo', makeRun({ id: 2, status: 'queued' }));
+      store.upsertRun('org/repo', makeRun({ id: 3, status: 'completed', conclusion: 'success' }));
+
+      const active = store.listActiveRuns();
+      expect(active.map((a) => a.run.id).sort()).toEqual([1, 2]);
+    });
+
+    it('sorts oldest-updated first, so a long-stuck run gets priority', () => {
+      const store = new StateStore();
+      store.upsertRun(
+        'org/repo',
+        makeRun({ id: 1, status: 'in_progress', updatedAt: '2026-01-01T00:10:00.000Z' }),
+      );
+      store.upsertRun(
+        'org/repo',
+        makeRun({ id: 2, status: 'in_progress', updatedAt: '2026-01-01T00:00:00.000Z' }),
+      );
+      expect(store.listActiveRuns().map((a) => a.run.id)).toEqual([2, 1]);
+    });
+  });
 });
