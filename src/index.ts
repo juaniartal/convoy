@@ -37,9 +37,15 @@ const ACTIVE_RUN_POLL_INTERVAL_MS = 30 * 1000;
  * webhook for it arrives, or reconciliation finds it -- so whichever
  * webhook DOES get through now kicks off an immediate full sweep instead
  * of waiting up to 5 minutes, and the rest of the wave shows up within
- * seconds instead of minutes. The cooldown stops the other 29 webhooks in
- * the same burst from each triggering their own redundant sweep. */
-const DEPLOY_TRIGGER_COOLDOWN_MS = 20 * 1000;
+ * seconds instead of minutes.
+ *
+ * The cooldown is deliberately generous (minutes, not seconds) -- this
+ * only pays for itself against a genuine burst (many deploys within the
+ * same short window). A short cooldown would also fire a full sweep for
+ * every isolated deploy spread through an ordinary day, each one costing
+ * as much as the regular 5-minute pass for no benefit: that pass was
+ * already going to catch a single deploy just fine on its own schedule. */
+const DEPLOY_TRIGGER_COOLDOWN_MS = 3 * 60 * 1000;
 
 /** How long after the immediate sweep to run a follow-up one. Confirmed
  * directly: GitHub itself can take a few seconds to finish creating
