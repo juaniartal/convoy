@@ -25,3 +25,9 @@ put_secret convoy/github-webhook-secret "$WEBHOOK_SECRET"
 put_secret convoy/github-private-key "$(cat "$PRIVATE_KEY_PATH")"
 
 echo "Seeded convoy/github-app-id, convoy/github-webhook-secret, convoy/github-private-key into AWS Secrets Manager."
+
+# Using the optional OIDC/SSO login too? Seed those the same way, e.g.:
+#   put_secret convoy/oidc-issuer-url "https://login.microsoftonline.com/<tenant-id>/v2.0"
+#   put_secret convoy/oidc-client-id "<client-id>"
+#   put_secret convoy/oidc-client-secret "<client-secret>"
+#   put_secret convoy/oidc-redirect-uri "https://<your-domain>/api/auth/oidc/callback"

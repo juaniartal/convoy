@@ -174,11 +174,23 @@ helm install convoy ./helm/convoy \
 ```
 See `helm/convoy/values.yaml` for the full set of configurable values.
 Pulling from a private registry? You'll want `imagePullSecrets` too. Before
-putting this behind a real Ingress host, turn on a login — either
-`CONVOY_API_KEY` for a single shared password, or `CONVOY_OIDC_*` to add a
-"Log in with \<your provider\>" button backed by Azure AD/Google/Okta/etc.,
-whatever your team already uses. See [Access control](#access-control) for
-both.
+putting this behind a real Ingress host, turn on a login — set `apiKey` for
+a single shared password, or the `oidc.*` values for a real "Log in with
+\<your provider\>" button backed by Azure AD/Google/Okta/etc., whatever
+your team already uses:
+```bash
+helm install convoy ./helm/convoy \
+  --set-file github.privateKey=./private-key.pem \
+  --set github.appId=<APP_ID> \
+  --set github.webhookSecret=<WEBHOOK_SECRET> \
+  --set ingress.host=convoy.your-internal-domain.com \
+  --set oidc.issuerUrl=https://login.microsoftonline.com/<tenant-id>/v2.0 \
+  --set oidc.clientId=<CLIENT_ID> \
+  --set oidc.clientSecret=<CLIENT_SECRET> \
+  --set oidc.redirectUri=https://convoy.your-internal-domain.com/api/auth/oidc/callback
+```
+Both `apiKey` and `oidc.*` can be set together — see
+[Access control](#access-control) for the full picture on either one.
 
 Already manage credentials through External Secrets Operator, Vault, or a
 cloud secret manager instead of plain `--set`/`--set-file`? Set
