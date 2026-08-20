@@ -25,7 +25,13 @@ const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 // click away) shows a bit more, not everything -- a repo with 90 runs in a
 // day shouldn't turn into an endless scroll. Full history is one more click
 // away, on GitHub itself, not something Convoy tries to replicate.
-const CARD_PREVIEW_LIMIT = 3;
+//
+// Deploys get just 1: the card's overall dot already reflects only the
+// latest deploy (older ones are resolved history, not a current problem --
+// see computeOverall), so previewing 3 would show two rows that don't even
+// affect the status shown above them. On a real deploy day that's just
+// noise competing with the one release that actually matters right now.
+const CARD_PREVIEW_LIMIT = { deploy: 1, pipeline: 3 };
 const DETAIL_PREVIEW_LIMIT = 5;
 
 // --- State ---
@@ -359,7 +365,7 @@ function groupByRepo(runs, repos, category) {
     pipelines.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const overall = computeOverall(pipelines, category);
     const stale = pipelines.length > 0 && pipelines.every(isStale);
-    return { repo, pipelines, overall, stale, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
+    return { repo, pipelines, overall, stale, category, latestUpdatedAt: pipelines[0]?.updatedAt ?? '' };
   });
   // Favorites float to the top regardless of activity -- that's the point
   // of marking them, so they don't get buried under noisier repos.
@@ -660,8 +666,9 @@ function cardPipelineRowHtml(run) {
 }
 
 function repoCardHtml(group) {
-  const { repo, pipelines, overall, stale } = group;
+  const { repo, pipelines, overall, stale, category } = group;
   const label = unitLabel();
+  const previewLimit = CARD_PREVIEW_LIMIT[category] ?? CARD_PREVIEW_LIMIT.pipeline;
 
   const prevOverall = prevRepoOverall.get(repo);
   const flashClass = prevOverall && prevOverall !== overall ? `flash-${overall}` : '';
@@ -680,7 +687,7 @@ function repoCardHtml(group) {
       </div>`;
   }
 
-  const preview = pipelines.slice(0, CARD_PREVIEW_LIMIT);
+  const preview = pipelines.slice(0, previewLimit);
   const hiddenCount = pipelines.length - preview.length;
   const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
 
