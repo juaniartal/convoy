@@ -1,0 +1,3 @@
+# Every merge into main needs Juan's own review, not just any collaborator's --
+# see the "main-require-approval-from-others" ruleset (require_code_owner_review).
+* @juaniartal
