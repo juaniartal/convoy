@@ -79,6 +79,16 @@ export async function runReconciliation(
               ? result.rateRemaining
               : Math.min(lowestRateSeen, result.rateRemaining);
         }
+        // Genuinely out of budget, not "this repo has no Actions" -- every
+        // other repo left in this pass would hit the exact same wall, so
+        // stop starting new work rather than burning through the pool
+        // logging the same failure repeatedly. This repo is NOT marked
+        // reconciled: there's no real data behind this response, and the
+        // next pass (or a webhook in the meantime) should retry it for real.
+        if (result.rateLimited) {
+          aborted = true;
+          return;
+        }
         if (result.skipped) {
           state.markReconciled(repo.full_name, new Date().toISOString());
           processed++;

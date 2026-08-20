@@ -78,11 +78,21 @@ export interface RunsResult {
   runs: WorkflowRunListItem[];
   rateRemaining: number | null;
   skipped: boolean;
+  /** True specifically for a rate-limit-exceeded 403 -- distinct from
+   * "skipped" (Actions disabled / archived), which is a permanent,
+   * per-repo condition safe to mark as reconciled. A rate-limited repo has
+   * no real data behind this response and must NOT be marked reconciled;
+   * the caller aborts the pass instead so the next one retries it. */
+  rateLimited: boolean;
 }
 
 /** Lists recent workflow runs for a repo. Archived repos or repos with
  * Actions disabled 404/403 — that's treated as "skip this repo," not an
- * error that should abort the whole reconciliation pass. */
+ * error that should abort the whole reconciliation pass. A rate-limit-
+ * exceeded 403 looks identical at the status-code level but means
+ * something completely different (every other repo in this pass will hit
+ * the same wall), so it's distinguished by the accompanying header rather
+ * than lumped in with "skip" the way it used to be. */
 export async function listWorkflowRunsForRepo(
   client: GithubClient,
   owner: string,
@@ -100,14 +110,28 @@ export async function listWorkflowRunsForRepo(
       runs: res.data.workflow_runs,
       rateRemaining: parseRateRemaining(res.headers),
       skipped: false,
+      rateLimited: false,
     };
   } catch (err) {
     const status = (err as { status?: number }).status;
+    if (status === 403 && isRateLimitExceeded(err)) {
+      return { runs: [], rateRemaining: 0, skipped: false, rateLimited: true };
+    }
     if (status === 403 || status === 404) {
-      return { runs: [], rateRemaining: null, skipped: true };
+      return { runs: [], rateRemaining: null, skipped: true, rateLimited: false };
     }
     throw err;
   }
+}
+
+/** A rate-limit-exceeded response is a 403 with `x-ratelimit-remaining: 0`
+ * on the response that came with the error -- everything else that's also
+ * a plain 403 (Actions disabled for this repo, say) won't have that
+ * header at all, let alone set to zero. */
+function isRateLimitExceeded(err: unknown): boolean {
+  const headers = (err as { response?: { headers?: Record<string, string | number | undefined> } })
+    .response?.headers;
+  return headers?.['x-ratelimit-remaining'] === '0';
 }
 
 export async function listJobsForRun(

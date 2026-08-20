@@ -211,4 +211,28 @@ describe('runReconciliation', () => {
     expect(result.reposProcessed).toBe(1);
     expect(state.getRepo('org/no-actions')?.lastReconciledAt).not.toBeNull();
   });
+
+  // The bug this guards against: a rate-limit-exceeded 403 used to be
+  // indistinguishable from "this repo has Actions disabled" and got marked
+  // reconciled anyway, with no real data behind that claim -- silently
+  // hiding a rate-limit problem instead of backing off and retrying later.
+  it('aborts without marking a repo reconciled when the rate limit is actually exhausted', async () => {
+    const client: GithubClient = {
+      paginate: vi.fn().mockResolvedValue([
+        { id: 1, full_name: 'org/first', private: true, default_branch: 'main', archived: false },
+        { id: 2, full_name: 'org/second', private: true, default_branch: 'main', archived: false },
+      ]),
+      request: vi.fn().mockRejectedValue(
+        Object.assign(new Error('API rate limit exceeded'), {
+          status: 403,
+          response: { headers: { 'x-ratelimit-remaining': '0' } },
+        }),
+      ),
+    };
+    const state = new StateStore();
+    const result = await runReconciliation(client, state, emptyConfig, { concurrency: 1 });
+    expect(result.aborted).toBe(true);
+    expect(result.reposProcessed).toBe(0);
+    expect(state.getRepo('org/first')?.lastReconciledAt).toBeNull();
+  });
 });
