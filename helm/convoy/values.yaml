@@ -30,6 +30,20 @@ github:
 # Leave empty if your ingress/SSO already restricts who can reach this.
 apiKey: ''
 
+# Optional OIDC/SSO login -- adds a "Log in with <provider>" button backed
+# by any standard OIDC provider (Azure AD, Google, Okta, ...), alongside
+# apiKey above rather than instead of it (either one signs you in). All
+# four of issuerUrl/clientId/clientSecret/redirectUri must be set together,
+# or none of this is used. redirectUri must exactly match what's
+# registered at the provider, ending in /api/auth/oidc/callback.
+oidc:
+  issuerUrl: ''
+  clientId: ''
+  clientSecret: ''
+  redirectUri: ''
+  # Button label shown on the login page. Defaults to "Log in with SSO".
+  buttonLabel: ''
+
 secret:
   # true (default): this chart creates the Secret from github.* / apiKey
   # above — the simplest path for a plain `helm install`.
