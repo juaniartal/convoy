@@ -135,6 +135,40 @@ describe('createApiApp with an apiKey set', () => {
     expect(res.headers.get('set-cookie')).toBeNull();
   });
 
+  it('rate-limits repeated failed login attempts from the same client', async () => {
+    const app = createApiApp(new StateStore(), {
+      publicDir,
+      apiKey: 'secret123',
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
+    });
+    const { server, baseUrl: rlBaseUrl } = await listen(app);
+
+    let lastStatus = 0;
+    for (let i = 0; i < 12; i++) {
+      const res = await fetch(`${rlBaseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'wrong' }),
+      });
+      lastStatus = res.status;
+    }
+    expect(lastStatus).toBe(429);
+
+    // Locked out applies even to the correct password, until the window resets.
+    const correctRes = await fetch(`${rlBaseUrl}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'secret123' }),
+    });
+    expect(correctRes.status).toBe(429);
+
+    server.close();
+  });
+
   it('logs in with the right password, then the session cookie grants access', async () => {
     const loginRes = await fetch(`${baseUrl}/api/login`, {
       method: 'POST',

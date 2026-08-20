@@ -2,8 +2,17 @@ import { Classification } from './types.js';
 
 /** Matches v1.2.3, 1.2.3, v1.2.3-beta.1, 1.2.3+build.5 — deliberately permissive
  * about the leading "v" and pre-release/build metadata, since real-world tags
- * vary (see e.g. "v1.4.22-hotfix-20260731" in the wild). */
-const SEMVER_TAG_RE = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
+ * vary (see e.g. "v1.4.22-hotfix-20260731" in the wild).
+ *
+ * headBranch is attacker-influenceable (anyone who can push a tag/branch to
+ * a repo this App is installed on chooses this string), so the naive
+ * `(?:[-+][0-9A-Za-z.-]+)*` shape matters: `-` is both the segment trigger
+ * and a character the inner class also accepts, which gives a string of
+ * many dashes exponentially many ways to split into segments (catastrophic
+ * backtracking / ReDoS, CodeQL js/redos). `(?=(...))\1` emulates an atomic
+ * group -- once the inner run is matched greedily it's never re-split,
+ * which removes the ambiguity without changing what the pattern accepts. */
+const SEMVER_TAG_RE = /^v?\d+\.\d+\.\d+(?:[-+](?=([0-9A-Za-z.-]+))\1)*$/;
 
 export interface ClassifyInput {
   /** The workflow run's `event` field: push, release, workflow_dispatch, schedule, ... */

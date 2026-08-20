@@ -21,12 +21,18 @@ export interface ReconcileOptions {
    * rest. Only meaningful because reconciliation is a safety net, not the
    * primary update path. */
   minRateRemaining?: number;
+  /** Called when a single repo's reconciliation fails for a reason other
+   * than the normal "skip" cases (archived, Actions disabled) -- a
+   * transient 500 or network blip on one repo out of hundreds shouldn't
+   * take reconciliation down for every other repo in this pass. */
+  onRepoError?: (repoFullName: string, err: unknown) => void;
 }
 
 const DEFAULTS: Required<ReconcileOptions> = {
   concurrency: 8,
   lookbackHours: 2,
   minRateRemaining: 200,
+  onRepoError: () => {},
 };
 
 /**
@@ -57,55 +63,59 @@ export async function runReconciliation(
     repos,
     async (repo) => {
       if (aborted) return;
-      state.upsertRepo({
-        id: repo.id,
-        fullName: repo.full_name,
-        private: repo.private,
-        defaultBranch: repo.default_branch,
-      });
+      try {
+        state.upsertRepo({
+          id: repo.id,
+          fullName: repo.full_name,
+          private: repo.private,
+          defaultBranch: repo.default_branch,
+        });
 
-      const [owner, name] = repo.full_name.split('/') as [string, string];
-      const result = await listWorkflowRunsForRepo(client, owner, name, cutoff);
-      if (result.rateRemaining != null) {
-        lowestRateSeen =
-          lowestRateSeen == null
-            ? result.rateRemaining
-            : Math.min(lowestRateSeen, result.rateRemaining);
-      }
-      if (result.skipped) {
-        state.markReconciled(repo.full_name, new Date().toISOString());
-        processed++;
-        return;
-      }
+        const [owner, name] = repo.full_name.split('/') as [string, string];
+        const result = await listWorkflowRunsForRepo(client, owner, name, cutoff);
+        if (result.rateRemaining != null) {
+          lowestRateSeen =
+            lowestRateSeen == null
+              ? result.rateRemaining
+              : Math.min(lowestRateSeen, result.rateRemaining);
+        }
+        if (result.skipped) {
+          state.markReconciled(repo.full_name, new Date().toISOString());
+          processed++;
+          return;
+        }
 
-      const override = config.overrides.get(repo.full_name);
-      for (const run of result.runs) {
-        const changed = hasChanged(state, repo.full_name, run);
-        const category = classifyRun(
-          { event: run.event, headBranch: run.head_branch, workflowName: run.name ?? '' },
-          override,
-        );
-        state.upsertRun(repo.full_name, toRunUpsertInput(run, category));
+        const override = config.overrides.get(repo.full_name);
+        for (const run of result.runs) {
+          const changed = hasChanged(state, repo.full_name, run);
+          const category = classifyRun(
+            { event: run.event, headBranch: run.head_branch, workflowName: run.name ?? '' },
+            override,
+          );
+          state.upsertRun(repo.full_name, toRunUpsertInput(run, category));
 
-        if (changed) {
-          const jobsRes = await listJobsForRun(client, owner, name, run.id);
-          if (jobsRes.rateRemaining != null) {
-            lowestRateSeen =
-              lowestRateSeen == null
-                ? jobsRes.rateRemaining
-                : Math.min(lowestRateSeen, jobsRes.rateRemaining);
-          }
-          for (const job of jobsRes.jobs) {
-            state.upsertJob(repo.full_name, run.id, toJobState(job));
+          if (changed) {
+            const jobsRes = await listJobsForRun(client, owner, name, run.id);
+            if (jobsRes.rateRemaining != null) {
+              lowestRateSeen =
+                lowestRateSeen == null
+                  ? jobsRes.rateRemaining
+                  : Math.min(lowestRateSeen, jobsRes.rateRemaining);
+            }
+            for (const job of jobsRes.jobs) {
+              state.upsertJob(repo.full_name, run.id, toJobState(job));
+            }
           }
         }
-      }
 
-      state.markReconciled(repo.full_name, new Date().toISOString());
-      processed++;
+        state.markReconciled(repo.full_name, new Date().toISOString());
+        processed++;
 
-      if (lowestRateSeen != null && lowestRateSeen < opts.minRateRemaining) {
-        aborted = true;
+        if (lowestRateSeen != null && lowestRateSeen < opts.minRateRemaining) {
+          aborted = true;
+        }
+      } catch (err) {
+        opts.onRepoError(repo.full_name, err);
       }
     },
     opts.concurrency,

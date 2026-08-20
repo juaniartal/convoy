@@ -22,8 +22,11 @@ const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
 // have a dozen live pipelines at once — a card showing all of them by
 // default becomes a wall of text you can't scan alongside the other repos.
 // Preview the most recent few on the card; the repo's own detail page (one
-// click away) always shows the full list.
+// click away) shows a bit more, not everything -- a repo with 90 runs in a
+// day shouldn't turn into an endless scroll. Full history is one more click
+// away, on GitHub itself, not something Convoy tries to replicate.
 const CARD_PREVIEW_LIMIT = 3;
+const DETAIL_PREVIEW_LIMIT = 5;
 
 // --- State ---
 // Read from the URL (not just an in-memory default) so a refresh (F5) or a
@@ -179,7 +182,7 @@ function onToggleFavoritesOnly() {
 
 function starHtml(repo) {
   const fav = favorites.has(repo);
-  return `<button class="star-btn ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite('${repo}')" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>`;
+  return `<button class="star-btn ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite('${escapeJsString(repo)}')" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>`;
 }
 
 // --- Fetch ---
@@ -631,7 +634,7 @@ function pipelineHtml(run) {
         </div>
         <div class="run-actions">
           <span class="badge ${bucket}">${BADGE_LABEL[label]}</span>
-          <a class="ext-link" href="${run.htmlUrl}" target="_blank" onclick="event.stopPropagation()" title="open run on GitHub">↗</a>
+          <a class="ext-link" href="${escapeAttr(run.htmlUrl)}" target="_blank" onclick="event.stopPropagation()" title="open run on GitHub">↗</a>
         </div>
       </div>
       <div class="jobs">${jobs || '<span class="msg">no job detail yet</span>'}</div>
@@ -666,12 +669,12 @@ function repoCardHtml(group) {
 
   if (pipelines.length === 0) {
     return `
-      <div class="repo-card ${overall} ${flashClass}" onclick="openRepo('${repo}')">
+      <div class="repo-card ${overall} ${flashClass}" onclick="openRepo('${escapeJsString(repo)}')">
         <div class="repo-card-head">
           <span class="repo-dot idle"></span>
-          <span class="repo-name">${repo}</span>
+          <span class="repo-name">${escapeHtml(repo)}</span>
           ${starHtml(repo)}
-          <a class="ext-link" href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+          <a class="ext-link" href="https://github.com/${escapeAttr(repo)}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
         </div>
         <div class="repo-card-footer muted">No ${label}s have run yet.</div>
       </div>`;
@@ -682,12 +685,12 @@ function repoCardHtml(group) {
   const more = hiddenCount > 0 ? `<div class="card-more">+${hiddenCount} more ${label}${hiddenCount === 1 ? '' : 's'}</div>` : '';
 
   return `
-    <div class="repo-card ${overall} ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${repo}')">
+    <div class="repo-card ${overall} ${stale ? 'stale' : ''} ${flashClass}" onclick="openRepo('${escapeJsString(repo)}')">
       <div class="repo-card-head">
         <span class="repo-dot ${overall}"></span>
-        <span class="repo-name">${repo}</span>
+        <span class="repo-name">${escapeHtml(repo)}</span>
         ${starHtml(repo)}
-        <a class="ext-link" href="https://github.com/${repo}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
+        <a class="ext-link" href="https://github.com/${escapeAttr(repo)}" target="_blank" onclick="event.stopPropagation()" title="open repo on GitHub">↗</a>
       </div>
       <div class="card-pipelines">${preview.map(cardPipelineRowHtml).join('')}</div>
       ${more}
@@ -709,9 +712,9 @@ function renderGrid(groups) {
   }, 1500);
 }
 
-// The dedicated single-repo page — always shows every pipeline in full
-// (jobs, duration, actor, link), no preview cap. This is the "click in to
-// see everything running or failed for just this repo" view.
+// The dedicated single-repo page — more than the card's preview, but still
+// capped (DETAIL_PREVIEW_LIMIT). A link to GitHub's own Actions history
+// covers "I want to see everything", not an ever-growing list here.
 function renderDetail(group) {
   const grid = document.getElementById('grid');
   grid.className = '';
@@ -719,7 +722,7 @@ function renderDetail(group) {
   const header = `
     <div class="detail-header">
       <button class="ghost" onclick="closeRepo()">← All repos</button>
-      ${group ? `<span class="repo-name">${group.repo}</span>${starHtml(group.repo)}<a class="ext-link" href="https://github.com/${group.repo}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
+      ${group ? `<span class="repo-name">${escapeHtml(group.repo)}</span>${starHtml(group.repo)}<a class="ext-link" href="https://github.com/${escapeAttr(group.repo)}" target="_blank" title="open repo on GitHub">↗</a>` : ''}
     </div>`;
 
   if (!group) {
@@ -732,7 +735,14 @@ function renderDetail(group) {
     return;
   }
 
-  grid.innerHTML = `${header}<div class="repo-detail">${group.pipelines.map(pipelineHtml).join('')}</div>`;
+  const preview = group.pipelines.slice(0, DETAIL_PREVIEW_LIMIT);
+  const hiddenCount = group.pipelines.length - preview.length;
+  const more =
+    hiddenCount > 0
+      ? `<div class="card-more">+${hiddenCount} more ${unitLabel()}${hiddenCount === 1 ? '' : 's'} — <a href="https://github.com/${escapeAttr(group.repo)}/actions" target="_blank">see full history on GitHub</a></div>`
+      : '';
+
+  grid.innerHTML = `${header}<div class="repo-detail">${preview.map(pipelineHtml).join('')}</div>${more}`;
 
   setTimeout(() => {
     grid.querySelectorAll('[class*="flash-"]').forEach((el) => {
@@ -743,6 +753,13 @@ function renderDetail(group) {
 
 function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+// For values interpolated into a single-quoted JS string literal inside an
+// onclick="..." attribute (e.g. onclick="openRepo('${escapeJsString(repo)}')") --
+// a distinct escaping context from both escapeHtml and escapeAttr.
+function escapeJsString(s) {
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 // Branch/tag names, workflow names, and job names come from GitHub data

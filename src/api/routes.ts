@@ -1,8 +1,58 @@
+import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { StateStore } from '../core/state.js';
 import { OidcClient } from './oidc.js';
 import { SESSION_COOKIE, SessionStore } from './session.js';
+
+const LOGIN_RATE_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_RATE_MAX_ATTEMPTS = 10;
+
+/** Bounds brute-force guessing of a weak CONVOY_API_KEY -- a strong random
+ * key (the README recommends `openssl rand -base64 32`) doesn't need this,
+ * but nothing stops someone from setting a short one, and there's no other
+ * defense against unlimited guesses. */
+class LoginRateLimiter {
+  private attempts = new Map<string, { count: number; resetAt: number }>();
+
+  isBlocked(key: string): boolean {
+    const entry = this.attempts.get(key);
+    if (!entry) return false;
+    if (entry.resetAt < Date.now()) {
+      this.attempts.delete(key);
+      return false;
+    }
+    return entry.count >= LOGIN_RATE_MAX_ATTEMPTS;
+  }
+
+  recordFailure(key: string): void {
+    const entry = this.attempts.get(key);
+    if (!entry || entry.resetAt < Date.now()) {
+      this.attempts.set(key, { count: 1, resetAt: Date.now() + LOGIN_RATE_WINDOW_MS });
+      return;
+    }
+    entry.count += 1;
+  }
+
+  reset(key: string): void {
+    this.attempts.delete(key);
+  }
+}
+
+/** Same length-independent compare either way: a naive `===` short-circuits
+ * on the first differing byte, which in principle leaks how many leading
+ * characters of a guess are correct via response timing. Comparing against
+ * a same-length dummy on a length mismatch keeps that path constant-time
+ * too, rather than returning early. */
+function secureCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
 
 export interface ApiAppOptions {
   publicDir: string;
@@ -40,6 +90,7 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
   });
 
   const sessions = new SessionStore();
+  const loginLimiter = new LoginRateLimiter();
   const authEnabled = Boolean(options.apiKey) || Boolean(options.oidc);
 
   // Auth endpoints and the handful of static assets the login page itself
@@ -65,11 +116,18 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
   });
 
   app.post('/api/login', (req, res) => {
+    const rateKey = req.ip ?? 'unknown';
+    if (loginLimiter.isBlocked(rateKey)) {
+      res.status(429).json({ error: 'too many attempts, try again later' });
+      return;
+    }
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!options.apiKey || password !== options.apiKey) {
+    if (!options.apiKey || !secureCompare(password, options.apiKey)) {
+      loginLimiter.recordFailure(rateKey);
       res.status(401).json({ error: 'invalid credentials' });
       return;
     }
+    loginLimiter.reset(rateKey);
     setSessionCookie(res, sessions.create(), req.secure);
     res.json({ ok: true });
   });
@@ -220,5 +278,5 @@ function isAuthorized(req: Request, sessions: SessionStore, apiKey?: string): bo
   if (!apiKey) return false;
   const header = req.header('authorization') ?? '';
   const [scheme, credentials] = header.split(' ');
-  return scheme === 'Bearer' && credentials === apiKey;
+  return scheme === 'Bearer' && !!credentials && secureCompare(credentials, apiKey);
 }

@@ -2,6 +2,11 @@ import { randomBytes } from 'node:crypto';
 import * as client from 'openid-client';
 
 const PENDING_TTL_MS = 5 * 60 * 1000;
+// /api/auth/oidc/start is unauthenticated by design (it's the login entry
+// point) -- bounds memory from someone hitting it in a loop without ever
+// completing a login, instead of letting the map grow unbounded for the
+// length of PENDING_TTL_MS.
+const MAX_PENDING = 1000;
 
 export interface OidcSettings {
   issuerUrl: string;
@@ -57,6 +62,10 @@ export class OidcClient {
 
   async buildAuthorizationUrl(): Promise<URL> {
     this.sweep();
+    if (this.pending.size >= MAX_PENDING) {
+      const oldest = this.pending.keys().next().value;
+      if (oldest !== undefined) this.pending.delete(oldest);
+    }
     const state = randomBytes(32).toString('hex');
     const codeVerifier = client.randomPKCECodeVerifier();
     const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
