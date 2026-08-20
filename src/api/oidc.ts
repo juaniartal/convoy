@@ -52,10 +52,20 @@ export class OidcClient {
   ) {}
 
   static async create(settings: OidcSettings): Promise<OidcClient> {
+    // Every real provider (Azure AD, Google, Okta, ...) is HTTPS -- this
+    // only exists so CONVOY_OIDC_ISSUER_URL can point at a plain-HTTP IdP
+    // while testing locally, without weakening anything for an actual
+    // deployment. Off unless explicitly opted into. Has to be threaded
+    // through discovery() itself via `execute` -- discovery's own initial
+    // fetch already enforces HTTPS before there's a Configuration object
+    // to patch after the fact.
+    const allowInsecure = process.env.CONVOY_OIDC_ALLOW_INSECURE === 'true';
     const config = await client.discovery(
       new URL(settings.issuerUrl),
       settings.clientId,
       settings.clientSecret,
+      undefined,
+      allowInsecure ? { execute: [client.allowInsecureRequests] } : undefined,
     );
     return new OidcClient(config, settings);
   }
