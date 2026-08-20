@@ -84,6 +84,22 @@ export class StateStore extends EventEmitter {
     return [...this.repos.values()];
   }
 
+  /** Every run not yet in a terminal state -- what the fast active-run
+   * watcher needs to know what to check, without an API call of its own
+   * (this is purely a read of what's already in memory). Sorted oldest
+   * updatedAt first, so if a tick can't check everything, it's the
+   * longest-stale ones that get priority. */
+  listActiveRuns(): Array<{ repoFullName: string; run: RunState }> {
+    const active: Array<{ repoFullName: string; run: RunState }> = [];
+    for (const repo of this.repos.values()) {
+      for (const run of repo.runs.values()) {
+        if (run.status !== 'completed') active.push({ repoFullName: repo.fullName, run });
+      }
+    }
+    active.sort((a, b) => a.run.updatedAt.localeCompare(b.run.updatedAt));
+    return active;
+  }
+
   /** Creates a minimal placeholder repo entry so a run/job is never dropped
    * just because its parent repo hasn't been registered yet (e.g. a webhook
    * arriving before the first reconciliation pass completes at boot). */

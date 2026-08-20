@@ -3,6 +3,7 @@ import { ApplicationFunction } from 'probot';
 import { createApiApp } from './api/routes.js';
 import { loadOidcSettings, OidcClient } from './api/oidc.js';
 import { loadConfig } from './config/overrides.js';
+import { watchActiveRuns } from './core/activeRunWatcher.js';
 import { runReconciliation } from './core/reconcile.js';
 import { StateStore } from './core/state.js';
 import { handleWorkflowJob } from './handlers/workflowJob.js';
@@ -17,6 +18,16 @@ import {
 /** Safety-net cadence — webhooks are the primary update path, this only
  * exists to catch deliveries GitHub failed to send. */
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+/** How often to re-check runs still in progress, independent of the slower
+ * reconciliation sweep above. Confirmed directly against a real
+ * installation: GitHub can and does drop a `completed` webhook under
+ * bursty load, and without this a run would sit showing "rolling" for up
+ * to the full 5 minutes even though it finished ages ago. This costs
+ * nothing when nothing's active (reads local state, no API call), and one
+ * cheap single-run request per active run otherwise -- see
+ * activeRunWatcher.ts for the exact rate-limit accounting. */
+const ACTIVE_RUN_POLL_INTERVAL_MS = 30 * 1000;
 
 /** Every restart starts from empty in-memory state (no database), so the
  * very first reconciliation pass needs a much wider window than the
@@ -123,6 +134,26 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
   // they're a safety net for recent webhook misses, not repopulation.
   void reconcileAll({ lookbackHours: BOOT_LOOKBACK_HOURS });
   setInterval(() => void reconcileAll(), RECONCILE_INTERVAL_MS);
+
+  async function watchAllActiveRuns(): Promise<void> {
+    try {
+      const appClient = await probotApp.auth();
+      const installations = await appClient.paginate<{ id: number }>('GET /app/installations');
+      for (const installation of installations) {
+        const client = await probotApp.auth(installation.id);
+        const result = await watchActiveRuns(client, state, config);
+        if (result.aborted) {
+          probotApp.log.warn(
+            { installationId: installation.id },
+            'active-run watcher stopped early: rate limit running low',
+          );
+        }
+      }
+    } catch (err) {
+      probotApp.log.error({ err }, 'active-run watch tick failed');
+    }
+  }
+  setInterval(() => void watchAllActiveRuns(), ACTIVE_RUN_POLL_INTERVAL_MS);
 
   const apiApp = createApiApp(state, {
     publicDir,

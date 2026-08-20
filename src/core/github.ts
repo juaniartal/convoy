@@ -134,6 +134,42 @@ function isRateLimitExceeded(err: unknown): boolean {
   return headers?.['x-ratelimit-remaining'] === '0';
 }
 
+export interface SingleRunResult {
+  run: WorkflowRunListItem | null;
+  rateRemaining: number | null;
+  rateLimited: boolean;
+}
+
+/** Fetches exactly one run by id -- what the active-run watcher uses
+ * instead of listWorkflowRunsForRepo, since it already knows the specific
+ * run it cares about and listing up to 100 runs just to check one would
+ * waste most of that response. `run: null` covers the rare case of the
+ * run having been deleted on GitHub since Convoy last saw it (404) --
+ * that's not an error, just something to drop rather than keep retrying. */
+export async function getWorkflowRun(
+  client: GithubClient,
+  owner: string,
+  repo: string,
+  runId: number,
+): Promise<SingleRunResult> {
+  try {
+    const res = await client.request<WorkflowRunListItem>(
+      'GET /repos/{owner}/{repo}/actions/runs/{run_id}',
+      { owner, repo, run_id: runId },
+    );
+    return { run: res.data, rateRemaining: parseRateRemaining(res.headers), rateLimited: false };
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 403 && isRateLimitExceeded(err)) {
+      return { run: null, rateRemaining: 0, rateLimited: true };
+    }
+    if (status === 403 || status === 404) {
+      return { run: null, rateRemaining: null, rateLimited: false };
+    }
+    throw err;
+  }
+}
+
 export async function listJobsForRun(
   client: GithubClient,
   owner: string,

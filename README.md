@@ -193,15 +193,25 @@ endpoint.
 
 ### Is it actually real-time?
 
-Convoy always runs two things at once — there's no setting that picks
+Convoy always runs three things at once — there's no setting that picks
 between them:
 
 - **Webhooks** push an update the instant something happens on GitHub. This
-  is what makes the board feel instant.
-- **Reconciliation** polls GitHub directly every 5 minutes, regardless,
-  whether webhooks are working or not. It exists so a single failed
-  delivery (a GitHub hiccup, a brief network blip) never leaves you more
-  than 5 minutes stale — it's a safety net, not a mode you opt into.
+  is what makes the board feel instant, and how it stays that way without
+  polling hundreds of repos on a timer.
+- **The active-run watcher** re-checks whatever Convoy currently thinks is
+  still running (queued/in-progress), every ~30 seconds, but *only* those —
+  reading "what's active" costs nothing (it's already in memory), and
+  checking one specific run by id is a single cheap request. This exists
+  because GitHub does drop webhook deliveries under bursty load — confirmed
+  directly, not theoretical: pushing to 20 repos at once dropped roughly
+  half the "completed" events one run, and every run that got stuck showing
+  "rolling" corrected itself within the next ~30-second tick, not 5 minutes
+  later.
+- **Reconciliation** polls every repo directly every 5 minutes, regardless,
+  whether webhooks are working or not. It's the last-resort net under both
+  of the above — a run that was never even seen as "active" (its very first
+  webhook was the one that got dropped) still gets caught here.
 
 Which one you're actually getting at any moment comes down entirely to
 whether GitHub can reach Convoy's webhook endpoint. Three things have to be
@@ -248,10 +258,13 @@ instead of leaving people to guess:
   metadata — never leaves your own infrastructure. There's no
   Convoy-operated backend anywhere.
 - **Webhooks first, polling only as a safety net.** A GitHub App installed
-  on your org gets `workflow_run`/`workflow_job` events directly. There's a
-  slow periodic reconciliation pass too, but that only exists to catch
-  webhook deliveries GitHub failed to send — it's not how Convoy stays up
-  to date under normal operation.
+  on your org gets `workflow_run`/`workflow_job` events directly. A fast
+  watcher re-checks only currently-active runs every ~30s, and a slower
+  full reconciliation pass runs every 5 minutes regardless — both exist to
+  catch webhook deliveries GitHub failed to send, not how Convoy stays up
+  to date under normal operation. See
+  [Is it actually real-time?](#is-it-actually-real-time) for why this
+  matters more than it sounds like it should.
 - **One GitHub credential, separate from who can view the dashboard.** The
   GitHub App is the only credential Convoy ever uses to talk to GitHub —
   it's not tied to any individual's account. Who can *view* the dashboard
