@@ -37,6 +37,19 @@ class LoginRateLimiter {
   reset(key: string): void {
     this.attempts.delete(key);
   }
+
+  /** Entries are otherwise only cleaned up lazily, when *that same* key is
+   * queried again after expiring -- an IP that fails once and never comes
+   * back (a scanner, a one-off typo from someone who then succeeded a
+   * different way) would sit here forever on a long-lived process
+   * otherwise. Convoy is meant to stay running indefinitely, not restart
+   * on a schedule, so this can't rely on a restart to reclaim it. */
+  sweep(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.attempts) {
+      if (entry.resetAt < now) this.attempts.delete(key);
+    }
+  }
 }
 
 /** Same length-independent compare either way: a naive `===` short-circuits
@@ -91,6 +104,8 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
 
   const sessions = new SessionStore();
   const loginLimiter = new LoginRateLimiter();
+  const sweepInterval = setInterval(() => loginLimiter.sweep(), LOGIN_RATE_WINDOW_MS * 2);
+  sweepInterval.unref();
   const authEnabled = Boolean(options.apiKey) || Boolean(options.oidc);
 
   // Auth endpoints and the handful of static assets the login page itself
