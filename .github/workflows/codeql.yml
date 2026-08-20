@@ -33,9 +33,16 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         continue-on-error: true
 
+      # upload-artifact rejects literal ".." in its path pattern, and the
+      # SARIF lands one directory above the checkout -- resolve it to a
+      # clean absolute path first.
+      - name: Resolve SARIF directory
+        if: always()
+        run: echo "SARIF_DIR=$(realpath "${{ github.workspace }}/../results")" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: codeql-sarif
-          path: ${{ github.workspace }}/../results/*.sarif
+          path: ${{ env.SARIF_DIR }}/*.sarif
           retention-days: 7
