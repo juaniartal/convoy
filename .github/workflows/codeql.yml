@@ -40,7 +40,7 @@ jobs:
         if: always()
         run: echo "SARIF_DIR=$(realpath "${{ github.workspace }}/../results")" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: codeql-sarif
