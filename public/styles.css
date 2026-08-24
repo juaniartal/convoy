@@ -139,8 +139,8 @@ input.search::placeholder { color: var(--fog); }
 .repo-card.pulled { border-left-color: var(--pulled); }
 /* Not hidden — a quiet repo still belongs on the board with its last known
    state. Just visually recedes so it doesn't compete with active ones. */
-.repo-card.stale { opacity: 0.5; }
-.repo-card.stale:hover { opacity: 0.85; }
+.repo-card.stale { opacity: 0.72; }
+.repo-card.stale:hover { opacity: 1; }
 .repo-card-head { display: flex; align-items: center; gap: 8px; }
 .repo-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .repo-dot.arrived { background: var(--arrived); }
