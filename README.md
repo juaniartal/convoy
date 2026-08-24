@@ -29,16 +29,15 @@ lets it scale to hundreds of repos without hammering the GitHub API.
 ## Contents
 
 - [Why this exists](#why-this-exists)
-- [Quickstart](#quickstart)
-- [Choose how you'll run it](#choose-how-youll-run-it)
-  - [Case 1 — just trying it out](#case-1--just-trying-it-out)
-  - [Case 2 — one person, actually relying on it day to day](#case-2--one-person-actually-relying-on-it-day-to-day)
-  - [Case 3 — a team, always-on in a shared cluster](#case-3--a-team-always-on-in-a-shared-cluster)
-  - [Is it actually real-time?](#is-it-actually-real-time)
+- [Try it out](#try-it-out)
+- [Create your GitHub App](#create-your-github-app)
+- [Run it — just for you](#run-it--just-for-you)
+- [Run it — for your team](#run-it--for-your-team)
+- [Using the dashboard](#using-the-dashboard)
+- [Is it actually real-time?](#is-it-actually-real-time)
 - [Design principles](#design-principles)
 - [How classification works](#how-classification-works)
 - [Access control](#access-control)
-- [Setup](#setup)
 - [Configuration reference](#configuration-reference)
 - [Status](#status)
 - [License](#license)
@@ -48,14 +47,14 @@ lets it scale to hundreds of repos without hammering the GitHub API.
 
 I work somewhere that deploys a lot of small services on Thursdays, and
 watching that roll out used to mean 40 open tabs, one per repo's Actions
-page, refreshing them by hand to see what landed and what didn't. That gets
-old fast. Convoy is the tool I wished existed: point it at your org once,
-and it just shows you what's deploying right now and what's normal CI
-traffic, live, without anyone pasting a list of links into Slack.
+page, refreshing them by hand to see what landed and what didn't. Convoy is
+the tool I wished existed: point it at your org once, and it just shows you
+what's deploying right now and what's normal CI traffic, live, without
+anyone pasting a list of links into Slack.
 
-## Quickstart
+## Try it out
 
-**Just want to look at it first?**
+No GitHub App, no webhooks, nothing to configure:
 
 ```bash
 git clone <this repo> && cd convoy
@@ -63,11 +62,20 @@ npm install
 npm run demo
 ```
 
-Opens at `http://localhost:3000` with fake seeded data — no GitHub App, no
-webhooks, nothing to configure. Good for a first look before you commit to
-anything.
+Opens at `http://localhost:3000` with fake seeded data — good for a first
+look before you commit to anything real.
 
-**Want it running on your own repos?**
+## Create your GitHub App
+
+Everything past this point — trying it against your own repos, running it
+for yourself, running it for a team — starts with the same one-time step:
+creating a **GitHub App**. It's just an identity Convoy uses to talk to
+GitHub on your behalf: GitHub notifies it the instant a workflow run
+changes (a webhook), and it can read — only read — Actions run data
+through the API. You create your own, once. It's free, and it never talks
+to anyone else's Convoy instance, or vice versa.
+
+**The easy way (recommended):**
 
 ```bash
 git clone <this repo> && cd convoy
@@ -76,44 +84,120 @@ cp .env.example .env
 npm run dev
 ```
 
-`.env.example` is just a template, no real secrets in it. `cp` creates your
-own local `.env` from it (already gitignored). You don't have to fill it in
-by hand — the next step does that part for you.
+The first run opens your browser through GitHub's own "app manifest"
+flow — it already knows which permissions and webhook events Convoy needs
+(from `app.yml`), so you just confirm a name and click **Create GitHub
+App**. It writes the App ID, private key, and webhook secret into `.env`
+for you automatically. Then:
 
-The first run walks you through creating a GitHub App in your browser and
-installing it on whichever repos you want Convoy to watch. That's it —
-`http://localhost:3000` now shows their real pipelines, live.
+1. Probot logs `Probot has been set up, please restart the server!` —
+   that's expected, not an error. Stop it (Ctrl+C) and run `npm run dev`
+   again; the first process was only running in "setup mode" and won't
+   serve the real dashboard until it restarts with the credentials that
+   were just written.
+2. Install the App on whichever repos or org you want Convoy to watch —
+   GitHub prompts you for this right after creating it.
+3. Open `http://localhost:3000` — your real pipelines should be there.
 
-One thing worth knowing going in: this is meant to run as a persistent
-service, not something you open and close. It's only useful while it's
-actually up (or up whenever you personally need it — see the next
-section). See [Choose how you'll run it](#choose-how-youll-run-it)
-below, and the [full setup guide](#setup) if `npm run dev` doesn't just
-work for you.
+For local webhook delivery, this flow relays through
+[smee.io](https://smee.io) by default — free, but a third-party relay, and
+ephemeral (not meant to stay up forever). That's fine for local dev;
+production never uses it — see [Run it — for
+yourself](#run-it--just-for-you) and [for your
+team](#run-it--for-your-team) below, GitHub delivers straight to your own
+server or ingress there, no relay involved.
 
-## Choose how you'll run it
+<details>
+<summary><strong>The manual way</strong> — if the automatic flow crashes, or you want the App ready before running any code</summary>
 
-Three cases, and they need genuinely different webhook setups — worth
-reading before you pick one. Whichever you land on, it starts the same
-way: you need your own GitHub App (see [Setup](#setup) — the same
-walkthrough for everyone, regardless of where Convoy itself ends up
-running).
+I hit a real bug here myself: Probot 14's automatic manifest flow can crash
+with `SmeeClient is not a constructor` on Node 20/24 — a known
+incompatibility in how it dynamically imports `smee-client` at runtime
+(confirmed it's not a network/proxy issue on my end, since a plain `npx
+smee-client@5.0.0` runs fine on its own). If that happens, set the App up
+by hand instead:
 
-### Case 1 — just trying it out
+**1. Create the App.** Go to
+<https://github.com/settings/apps/new> and fill in:
 
-`npm run demo` needs nothing at all (no GitHub App, no webhooks — see
-[Quickstart](#quickstart) above). Want real data while you evaluate it?
-`npm run dev` plus the smee.io relay from [Setup](#setup) is fine *for
-this*. smee is a free, ephemeral, third-party relay — exactly right for
-"let me see this work for twenty minutes," and exactly wrong for anything
-you plan to depend on (channels aren't meant to be permanent, and you
-don't control that relay's uptime).
+- **GitHub App name** — anything unique (e.g. `yourname-convoy`).
+- **Homepage URL** — GitHub requires *something* here even though nothing
+  reads it for local testing. `http://localhost:3000` is fine.
+- **Callback URL** and **"Request user authorization (OAuth) during
+  installation"** — leave both alone (empty/unchecked). That section is
+  for apps that implement "Login with GitHub" for end users, which Convoy
+  deliberately doesn't do — see [Design principles](#design-principles)
+  for why.
+- **Webhook → Active** — checked.
+- **Webhook → Webhook URL** — a smee.io channel. Open
+  <https://smee.io/new> in another tab first, it gives you a URL like
+  `https://smee.io/AbCdEfGh123`; paste that here.
+- **Webhook → Webhook secret** — *you* make this up, it isn't generated
+  for you. Any string works, but a real random one is one command away:
+  `openssl rand -hex 20`. Remember it, it goes in `.env` next.
+- **Repository permissions → Actions** — Read-only.
+- **Repository permissions → Metadata** — Read-only (usually auto-selected
+  once Actions is set).
+- **Subscribe to events** — check `Workflow run` and `Workflow job`.
+- **Where can this GitHub App be installed?** — "Only on this account" is
+  fine for personal testing.
 
-### Case 2 — one person, actually relying on it day to day
+Click **Create GitHub App**. GitHub creates it and shows its settings
+page — note the **App ID** near the top, you'll need it in a minute.
 
-Once you're past evaluating, stop using smee. Two ways to do this instead —
-pick whichever matches how you actually work, not which one is "more
-correct":
+**2. Generate the private key.** Still on that settings page, scroll to
+**Private keys** → **Generate a private key**. Your browser downloads a
+`.pem` — a key GitHub just generated specifically for this App, not any
+SSH key you might already have (that mix-up is easy to make and doesn't
+work — GitHub App keys are always RSA and start with `-----BEGIN RSA
+PRIVATE KEY-----`; if you paste in something else, `npm run dev` now tells
+you clearly instead of failing in a confusing way). Move the downloaded
+file into this project folder and rename it to `private-key.pem`.
+
+**3. Fill in `.env` by hand:**
+```
+APP_ID=<the App ID from step 1>
+WEBHOOK_SECRET=<the exact same string you put in the Webhook secret field>
+PRIVATE_KEY_PATH=./private-key.pem
+```
+Leave `WEBHOOK_PROXY_URL` **empty** — setting it at all triggers the crash
+this whole section exists to work around, even outside setup mode.
+
+**4. Run it.** Two terminals, both from inside this project folder:
+
+Terminal 1:
+```bash
+npm run dev
+```
+Terminal 2 (the smee relay, running independently):
+```bash
+npx smee-client@5.0.0 -u https://smee.io/<your-channel> -t http://localhost:3000/api/github/webhooks
+```
+
+**5. Install the App.** From the App's settings page, click **Install
+App** in the left sidebar, pick your account, and choose a couple of test
+repos. GitHub redirects you to a generic "Installation complete"
+confirmation page when you're done — that's just GitHub's own page, not
+part of Convoy, nothing to do there. Open `http://localhost:3000` and you
+should see your repos.
+
+**Don't want to deal with a tunnel at all yet?** You don't have to. Put
+any syntactically valid URL in the Webhook URL field (even one that goes
+nowhere) and skip terminal 2 entirely. Every webhook delivery will show as
+failed in GitHub's UI, but Convoy still updates on its own every few
+minutes via reconciliation — you just won't see changes the instant they
+happen. Good enough for "does this work at all", set up the smee tunnel
+later if you want it live.
+
+</details>
+
+## Run it — just for you
+
+Once you're past trying it out, stop relying on smee — it's a free,
+ephemeral, third-party relay, exactly right for "let me see this work for
+twenty minutes," and exactly wrong for anything you plan to depend on.
+Two ways to do this instead, pick whichever matches how you actually
+work:
 
 **A. A small always-on VPS.** No Kubernetes needed. A cheap box (a $5-6/mo
 DigitalOcean/Hetzner droplet, a home server, even a Raspberry Pi) running
@@ -130,8 +214,9 @@ docker run -d --restart=always -p 3000:3000 \
 `--restart=always` means it survives the box rebooting. Point your GitHub
 App's webhook URL at `http://<your-server>:3000/api/github/webhooks` — put
 a real domain and TLS in front if you want it cleaner (a reverse proxy
-like Caddy makes that close to a one-liner). The box itself has a public
-IP, so GitHub reaches it directly — no relay of any kind needed here.
+like Caddy makes that close to a one-liner, see the walkthrough below).
+The box itself has a public IP, so GitHub reaches it directly — no relay
+of any kind needed here.
 
 **B. Local Kubernetes, only running when you're actually looking.** If you
 already run Docker Desktop / kind / minikube for other things, you don't
@@ -153,13 +238,14 @@ GitHub can't deliver anything to it directly. Two ways to handle that:
   minutes of you bringing Convoy back up. This is genuinely how I ran my
   own instance for most of building this.
 - **Want it truly live instead of "catches up in a few minutes"?** Use a
-  tunnel with a **static/persistent domain** — a free [ngrok](https://ngrok.com)
-  account gives you one for exactly this. Point the tunnel at
-  `localhost:3000` whenever Convoy is up, and set your GitHub App's webhook
-  URL to that ngrok domain *once* — since the domain doesn't change between
-  runs, you never have to touch the App's settings again, just start/stop
-  the tunnel alongside Convoy itself. This is *not* smee: it's a stable
-  address you control, not an ephemeral test channel.
+  tunnel with a **static/persistent domain** — a free
+  [ngrok](https://ngrok.com) account gives you one for exactly this (not
+  smee — this needs a stable address you control, not an ephemeral test
+  channel). Point the tunnel at `localhost:3000` whenever Convoy is up,
+  and set your GitHub App's webhook URL to that ngrok domain *once* —
+  since the domain doesn't change between runs, you never have to touch
+  the App's settings again, just start/stop the tunnel alongside Convoy
+  itself.
 
 Either way, once it's reachable by anyone but you, set `CONVOY_API_KEY` —
 one env var gets you a real login page instead of a wide-open dashboard.
@@ -188,9 +274,10 @@ permanently, on a plain VPS — not assuming you've done any of this before.
    whatever subdomain), value = your VPS's public IP. DNS changes can take
    a few minutes to a few hours to propagate; `dig convoy.yourdomain.com`
    should eventually show your VPS's IP.
-4. **Create the GitHub App.** Follow [Setup](#setup) below — same steps
-   regardless of where Convoy ends up running. Save the App ID, the
-   downloaded private key, and the webhook secret.
+4. **Create the GitHub App** — see [Create your GitHub
+   App](#create-your-github-app) above, same steps regardless of where
+   Convoy ends up running. Save the App ID, the downloaded private key,
+   and the webhook secret.
 5. **Run Convoy and a reverse proxy together**, so you get real HTTPS
    without touching certificates by hand — Caddy gets one automatically
    from Let's Encrypt the moment it sees a real domain pointed at it:
@@ -229,7 +316,7 @@ permanently, on a plain VPS — not assuming you've done any of this before.
 
 </details>
 
-### Case 3 — a team, always-on in a shared cluster
+## Run it — for your team
 
 This is what the Helm chart is actually built for:
 ```bash
@@ -257,7 +344,8 @@ helm install convoy ./helm/convoy \
   --set oidc.redirectUri=https://convoy.your-internal-domain.com/api/auth/oidc/callback
 ```
 Both `apiKey` and `oidc.*` can be set together — see
-[Access control](#access-control) for the full picture on either one.
+[Access control](#access-control) for the full picture on either one,
+including how to actually get those 4 OIDC values from your provider.
 
 Already manage credentials through External Secrets Operator, Vault, or a
 cloud secret manager instead of plain `--set`/`--set-file`? Set
@@ -344,8 +432,9 @@ your cluster, permanently.
                ingressClassName: nginx
    EOF
    ```
-6. **Create the GitHub App** — [Setup](#setup) below, same steps
-   regardless of where Convoy runs.
+6. **Create the GitHub App** — see [Create your GitHub
+   App](#create-your-github-app) above, same steps regardless of where
+   Convoy runs.
 7. **Install Convoy itself.** Put this in `convoy-values.yaml`:
    ```yaml
    github:
@@ -377,7 +466,33 @@ your cluster, permanently.
 
 </details>
 
-### Is it actually real-time?
+## Using the dashboard
+
+- **Deploys / Pipelines / Overview** are tabs, not filters — switch
+  between them at the top. Overview is a health summary (one donut chart
+  per view: how many repos are healthy vs. down right now); the other two
+  list repos directly.
+- **The Deploys tab defaults to "the current release"** — only deploys
+  that started within an hour of the most recent one, the same scoped
+  view a hand-pasted list used to give you, derived automatically
+  instead. Click **Show all deploys** to see the full history instead.
+- **Search** filters by repo name or tag as you type.
+- **★ favorites a repo** (stored in your own browser, not shared between
+  people looking at the same instance) — turn on **Favorites only** to
+  see just those.
+- **Hide inactive (48h+)** hides repos with nothing running or recently
+  finished. Even without it checked, a repo quiet for 48h+ just looks
+  dimmer, not hidden — it still belongs on the board with its last known
+  state; disappearing entirely would read as "broken," not "idle."
+- A repo's status dot reflects its **worst** pipeline, not just its most
+  recent one — if one workflow is down and another just succeeded, the
+  card shows down.
+- Each card shows a short preview (1 deploy, or 3 pipelines) with a
+  "+N more" link. **Clicking a card** opens the full detail view for that
+  repo (up to 5 most recent runs), with a link to see everything older on
+  GitHub itself.
+
+## Is it actually real-time?
 
 Convoy always runs three things at once — there's no setting that picks
 between them:
@@ -424,15 +539,14 @@ GitHub isn't reaching you — check point 3 above first, it's the usual
 culprit.
 
 **To make sure it's always real-time, not just right after setup:**
-- **Solo/individual** (Case 2 above): the always-on VPS option (2-A) is the
-  simplest way to guarantee this — one process, one public IP, nothing in
-  between that can drift out of sync. The local-cluster-plus-tunnel option
-  (2-B) works too, but you're responsible for keeping the tunnel and
-  Convoy pointed at the same port every time you bring it back up.
-- **Company** (Case 3 above): a real Ingress on a domain that's always up.
-  Once it's wired correctly, Kubernetes keeps the Service pointed at
-  whichever pod is actually alive automatically — nothing to keep in sync
-  by hand.
+- **Just for you**: the always-on VPS option is the simplest way to
+  guarantee this — one process, one public IP, nothing in between that
+  can drift out of sync. The local-cluster-plus-tunnel option works too,
+  but you're responsible for keeping the tunnel and Convoy pointed at the
+  same port every time you bring it back up.
+- **For your team**: a real Ingress on a domain that's always up. Once
+  it's wired correctly, Kubernetes keeps the Service pointed at whichever
+  pod is actually alive automatically — nothing to keep in sync by hand.
 
 ## Design principles
 
@@ -618,145 +732,6 @@ don't fully trust:
    needs to not be reachable by people who shouldn't see it — if your
    network already handles that, there's nothing else to configure.
 
-## Setup
-
-The Quickstart above covers the normal path. This section is the longer
-version, for when something doesn't just work on the first try.
-
-### 1. Create the GitHub App
-
-Locally, for development:
-
-```bash
-git clone <this repo>
-cd convoy
-npm install
-cp .env.example .env
-npm run dev
-```
-
-The first run walks you through Probot's manifest flow in your browser,
-using the defaults in `app.yml`. It creates the GitHub App for you and
-writes the App ID, private key, and webhook secret into `.env`. Install the
-App on the org (or the specific repos) you want Convoy to watch.
-
-For local webhook delivery, Probot defaults to relaying through
-[smee.io](https://smee.io). If routing webhook metadata through a
-third-party relay isn't acceptable even for local dev, run your own smee
-server or use a different tunnel (ngrok, cloudflared) and set
-`WEBHOOK_PROXY_URL` accordingly. None of this matters in production —
-GitHub delivers webhooks straight to your deployed ingress URL there.
-
-Right after the manifest flow finishes, Probot logs
-`Probot has been set up, please restart the server!` — that's normal, not
-an error. Stop `npm run dev` (Ctrl+C) and run it again once; the first
-process was still running in "setup mode" and won't serve the real
-dashboard until it restarts with the credentials that were just written.
-
-<details>
-<summary><strong>If <code>npm run dev</code> crashes with <code>SmeeClient is not a constructor</code></strong></summary>
-
-I ran into this myself. It's a known incompatibility between Probot 14's
-built-in webhook proxy (which fetches `smee-client@5.0.0` via `npx` at
-runtime) and Node 20/24 — confirmed it's not a network/proxy issue on my
-end, since a plain `npx smee-client@5.0.0` runs fine on its own; it's
-specifically Probot's internal dynamic import of it that breaks. Work
-around it by setting up the App and tunnel by hand instead of relying on
-the automatic manifest flow. This is more steps than the automatic path,
-so here's every field, not just a summary:
-
-**1. Create the App.** Go to
-<https://github.com/settings/apps/new> and fill in:
-
-- **GitHub App name** — anything, has to be unique on GitHub (e.g.
-  `yourname-convoy-test`).
-- **Description** — optional, leave it blank if you want.
-- **Homepage URL** — GitHub requires *something* here even though nothing
-  reads it for local testing. `http://localhost:3000` is fine.
-- **Callback URL** and **"Request user authorization (OAuth) during
-  installation"** — leave both alone (empty / unchecked). This section is
-  for apps that implement "Login with GitHub" for end users, which Convoy
-  deliberately doesn't do — see
-  [Design principles](#design-principles) above for why. Nothing to fill
-  in here.
-- **Webhook → Active** — checked.
-- **Webhook → Webhook URL** — a smee.io channel. Open
-  <https://smee.io/new> in another tab first, it gives you a URL like
-  `https://smee.io/AbCdEfGh123`; paste that here.
-- **Webhook → Webhook secret** — *you* make this up, it isn't generated
-  for you. Any string works, but a real random one is one command away:
-  ```bash
-  openssl rand -hex 20
-  ```
-  Paste the result here, and remember it — you'll type the exact same
-  value into `.env` in step 3.
-- **Repository permissions → Actions** — Read-only.
-- **Repository permissions → Metadata** — Read-only (GitHub usually
-  selects this automatically once Actions is set).
-- **Subscribe to events** — check `Workflow run` and `Workflow job`.
-- **Where can this GitHub App be installed?** — "Only on this account" is
-  fine for personal testing.
-
-Click **Create GitHub App**. GitHub creates it and shows you its settings
-page — note the **App ID** near the top, you'll need it in a minute.
-
-**2. Generate the private key.** Still on that settings page, scroll down
-to **Private keys** and click **Generate a private key**. Your browser
-downloads a `.pem` file — this is a key GitHub just generated specifically
-for this App, not any SSH key you might already have on your machine (that
-mix-up is an easy one to make and it does not work — GitHub App keys are
-always RSA and start with `-----BEGIN RSA PRIVATE KEY-----`; if you paste
-in something else, `npm run dev` will now tell you clearly instead of
-failing in a confusing way). Move the downloaded file into this project
-folder and rename it to `private-key.pem`.
-
-**3. Fill in `.env` by hand:**
-```
-APP_ID=<the App ID from step 1>
-WEBHOOK_SECRET=<the exact same string you put in the Webhook secret field>
-PRIVATE_KEY_PATH=./private-key.pem
-```
-Leave `WEBHOOK_PROXY_URL` **empty** — setting it at all triggers the crash
-this whole section exists to work around, even outside setup mode.
-
-**4. Run it.** Two terminals, both from inside this project folder:
-
-Terminal 1:
-```bash
-npm run dev
-```
-Terminal 2 (the smee relay, running independently):
-```bash
-npx smee-client@5.0.0 -u https://smee.io/<your-channel> -t http://localhost:3000/api/github/webhooks
-```
-
-**5. Install the App.** From the App's settings page, click **Install App**
-in the left sidebar, pick your account, and choose a couple of test repos.
-GitHub redirects you to a generic "Installation complete" confirmation
-page when you're done — that's just GitHub's own page, not part of
-Convoy, nothing to do there. Open `http://localhost:3000` and you should
-see your repos.
-
-**Don't want to deal with a tunnel at all yet?** You don't have to. Put
-any syntactically valid URL in the Webhook URL field (even one that goes
-nowhere) and skip terminal 2 entirely. Every webhook delivery will show as
-failed in GitHub's UI, but Convoy still updates on its own every few
-minutes via reconciliation — you just won't see changes the instant they
-happen. Good enough for "does this work at all", set up the smee tunnel
-later if you want it live.
-
-</details>
-
-### 2. Run it
-
-See [Choose how you'll run it](#choose-how-youll-run-it) above for the
-Docker and Helm commands, whichever path fits.
-
-### 3. Point GitHub at it
-
-In your GitHub App settings, set the webhook URL to your deployed
-instance's `/api/github/webhooks` endpoint.
-
 ## Configuration reference
 
 **GitHub App**
@@ -785,10 +760,12 @@ instance's `/api/github/webhooks` endpoint.
 
 Early days. v1 is focused on getting the core loop right — webhooks,
 classification, live dashboard, real-time reliability, and login (shared
-key or OIDC/SSO) — for a single org, self-hosted. No history/analytics, no
-multi-org support, no per-user accounts or audit trail (one shared login
-or SSO, not individual identities). That's on purpose, not an oversight;
-see open issues for what's actually planned.
+key or OIDC/SSO) — self-hosted. A single GitHub App can already be
+installed across multiple orgs or accounts at once — every repo shows up
+together on one board, there's just no per-org filter in the UI yet. No
+history/analytics yet, no per-user accounts or audit trail (one shared
+login or SSO, not individual identities). That's on purpose, not an
+oversight; see open issues for what's actually planned.
 
 ## License
 
