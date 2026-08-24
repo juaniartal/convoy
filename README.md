@@ -542,6 +542,78 @@ don't fully trust:
    provider. Both `CONVOY_API_KEY` and `CONVOY_OIDC_*` can be set together
    — the login page shows the SSO button and the access-key field, either
    one gets you in.
+
+   <details>
+   <summary><strong>New to OIDC? Full walkthrough for getting those 4 values, from zero</strong></summary>
+
+   Convoy doesn't implement its own login — it delegates to whatever
+   identity provider your org already uses. You register Convoy as an
+   "application" at that provider once, and it hands you the 4 values
+   above. Pick the provider you use:
+
+   **Azure AD / Microsoft Entra ID**
+
+   1. Go to [entra.microsoft.com](https://entra.microsoft.com) → **App
+      registrations** → **New registration**.
+   2. Name it anything (e.g. `Convoy`). **Supported account types**:
+      single tenant, unless you specifically want people outside your org
+      to be able to log in. **Redirect URI**: platform **Web**, value
+      `https://convoy.your-domain.com/api/auth/oidc/callback` — exact
+      match required, including that path.
+   3. On the app's overview page, copy **Application (client) ID** →
+      that's `CONVOY_OIDC_CLIENT_ID`.
+   4. Copy **Directory (tenant) ID** from the same page, and build:
+      `CONVOY_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0`
+   5. **Certificates & secrets** → **New client secret** → copy the
+      **Value** column immediately (it's hidden forever after you leave
+      the page) → that's `CONVOY_OIDC_CLIENT_SECRET`.
+   6. Restrict who can log in (recommended — Convoy itself doesn't filter
+      by group): go to **Enterprise applications** → find your app →
+      **Properties** → set **Assignment required** to **Yes** → then
+      **Users and groups** → add only the people/teams who should have
+      access. Azure rejects anyone else's login before Convoy ever sees
+      it.
+
+   **Google Workspace**
+
+   1. [Google Cloud Console](https://console.cloud.google.com) → **APIs &
+      Services** → **Credentials** → **Create credentials** → **OAuth
+      client ID** → application type **Web application**.
+   2. **Authorized redirect URIs** →
+      `https://convoy.your-domain.com/api/auth/oidc/callback`.
+   3. `CONVOY_OIDC_ISSUER_URL=https://accounts.google.com`, and the
+      **Client ID**/**Client secret** Google shows you after creating it
+      map straight to `CONVOY_OIDC_CLIENT_ID`/`CONVOY_OIDC_CLIENT_SECRET`.
+   4. To restrict to your workspace domain instead of any Google account,
+      set the OAuth consent screen's **User type** to **Internal**.
+
+   **Okta**
+
+   1. Okta admin panel → **Applications** → **Create App Integration** →
+      **OIDC - OpenID Connect** → **Web Application**.
+   2. **Sign-in redirect URI** →
+      `https://convoy.your-domain.com/api/auth/oidc/callback`.
+   3. `CONVOY_OIDC_ISSUER_URL=https://<your-okta-domain>/oauth2/default`,
+      plus the **Client ID**/**Client secret** from the app you just
+      created.
+   4. Under **Assignments**, pick only the users/groups who should have
+      access.
+
+   **Any other provider** works the same way as long as it speaks
+   standard OIDC: you always end up with an issuer URL, a client ID, a
+   client secret, and a redirect URI you register up front. Once you have
+   the 4 values, set them locally in `.env` or on a running deployment via
+   Helm:
+   ```bash
+   helm upgrade convoy ./helm/convoy \
+     --set oidc.issuerUrl=<issuer-url> \
+     --set oidc.clientId=<client-id> \
+     --set-string oidc.clientSecret=<client-secret> \
+     --set oidc.redirectUri=https://convoy.your-domain.com/api/auth/oidc/callback
+   ```
+   Restart (Docker) or let the rollout finish (Helm), open the dashboard,
+   and a "Log in with SSO" button appears.
+   </details>
 3. **Or skip both and put it behind your existing SSO/VPN/authenticating
    ingress instead.** Convoy doesn't need to know who you are, it just
    needs to not be reachable by people who shouldn't see it — if your
