@@ -5,8 +5,7 @@
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
 
 Self-hosted, real-time GitHub Actions pipeline visualizer for your whole
-organization. Think ArgoCD, but for GitHub Actions runs instead of
-Kubernetes deployments.
+organization — every repo, every run, on one screen, live.
 
 Convoy installs a GitHub App on your org (or just your own account) and
 shows every repo's workflow runs on one screen, split into three views:
@@ -14,8 +13,8 @@ shows every repo's workflow runs on one screen, split into three views:
 - **Deploys** — runs triggered by a production release (a version tag, or a
   published GitHub Release)
 - **Pipelines** — everything else (main, qa, feature/*, bugfix/*, whatever)
-- **Overview** — an ArgoCD-style summary page: what portion of your repos
-  are healthy vs. down right now, one donut chart per view
+- **Overview** — a summary page: what portion of your repos are healthy vs.
+  down right now, one donut chart per view
 
 Updates come in through GitHub webhooks, not polling. That's the part that
 lets it scale to hundreds of repos without hammering the GitHub API.
@@ -86,9 +85,9 @@ installing it on whichever repos you want Convoy to watch. That's it —
 `http://localhost:3000` now shows their real pipelines, live.
 
 One thing worth knowing going in: this is meant to run as a persistent
-service, not something you open and close. Like ArgoCD, it's only useful
-while it's actually up (or up whenever you personally need it — see the
-next section). See [Choose how you'll run it](#choose-how-youll-run-it)
+service, not something you open and close. It's only useful while it's
+actually up (or up whenever you personally need it — see the next
+section). See [Choose how you'll run it](#choose-how-youll-run-it)
 below, and the [full setup guide](#setup) if `npm run dev` doesn't just
 work for you.
 
