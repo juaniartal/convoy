@@ -151,7 +151,21 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
   let lastReconciledAt: string | null = null;
   let installationCount = 0;
 
+  // A pass that outlives its own interval -- a big org, a slow GitHub, a
+  // deploy-triggered sweep landing on top of a scheduled one -- used to start
+  // a second pass on top of the first, each one making the same calls against
+  // the same rate limit budget, and each one making the next overlap more
+  // likely. Passes are a safety net over webhooks, so skipping one that would
+  // have overlapped costs nothing: the work it would have done is exactly
+  // what the pass already running is doing.
+  let reconcileInFlight = false;
+
   async function reconcileAll(options: { lookbackHours?: number } = {}): Promise<void> {
+    if (reconcileInFlight) {
+      probotApp.log.debug('reconciliation already in flight, skipping this trigger');
+      return;
+    }
+    reconcileInFlight = true;
     try {
       const appClient = await probotApp.auth();
       const installations = await appClient.paginate<{ id: number }>('GET /app/installations');
@@ -178,6 +192,8 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
       lastReconciledAt = new Date().toISOString();
     } catch (err) {
       probotApp.log.error({ err }, 'reconciliation pass failed');
+    } finally {
+      reconcileInFlight = false;
     }
   }
 
@@ -188,7 +204,17 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
   void reconcileAll({ lookbackHours: BOOT_LOOKBACK_HOURS });
   setInterval(() => void reconcileAll(), RECONCILE_INTERVAL_MS);
 
+  // Far more likely to overlap than reconciliation: this ticks every 30
+  // seconds and makes one request per active run, so a release wave with
+  // dozens of runs in flight can easily take longer than a tick. Without this
+  // guard those ticks stack, and the pile-up is worst exactly when the board
+  // is busiest -- multiplying GitHub calls against a rate limit the next tick
+  // then finds exhausted.
+  let watchInFlight = false;
+
   async function watchAllActiveRuns(): Promise<void> {
+    if (watchInFlight) return;
+    watchInFlight = true;
     try {
       const appClient = await probotApp.auth();
       const installations = await appClient.paginate<{ id: number }>('GET /app/installations');
@@ -204,6 +230,8 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
       }
     } catch (err) {
       probotApp.log.error({ err }, 'active-run watch tick failed');
+    } finally {
+      watchInFlight = false;
     }
   }
   setInterval(() => void watchAllActiveRuns(), ACTIVE_RUN_POLL_INTERVAL_MS);

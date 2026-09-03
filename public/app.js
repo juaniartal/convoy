@@ -218,7 +218,15 @@ async function onManualRefresh() {
 // over it. fetchSeq tags each call so only the most recent one is applied.
 let fetchSeq = 0;
 
-async function fetchState() {
+// One request in flight at a time. The board is the same for everyone, so a
+// second fetch started while the first is still running would ask the server
+// for a payload it's already sending -- and on a slow link during a release,
+// those pile up faster than they complete. Anything that arrives meanwhile is
+// remembered here and turned into exactly one follow-up fetch.
+let fetchInFlight = false;
+let refetchQueued = false;
+
+async function fetchStateOnce() {
   const seq = ++fetchSeq;
   let runs, repos;
   let error = null;
@@ -252,6 +260,27 @@ async function fetchState() {
     lastFetchedAt = Date.now();
   }
   render();
+}
+
+// Wraps the fetch above rather than guarding inside it, so the flag is
+// released no matter which path it returns through -- a stale-response
+// discard or a 401 redirect included. A flag stranded true here would look
+// exactly like the dashboard silently freezing.
+async function fetchState() {
+  if (fetchInFlight) {
+    refetchQueued = true;
+    return;
+  }
+  fetchInFlight = true;
+  try {
+    await fetchStateOnce();
+  } finally {
+    fetchInFlight = false;
+    if (refetchQueued) {
+      refetchQueued = false;
+      void fetchState();
+    }
+  }
 }
 
 function syncTabButtons() {

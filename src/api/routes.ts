@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { StateStore } from '../core/state.js';
 import { OidcClient } from './oidc.js';
@@ -7,6 +8,163 @@ import { SESSION_COOKIE, SessionStore } from './session.js';
 
 const LOGIN_RATE_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_RATE_MAX_ATTEMPTS = 10;
+
+/** Longest a connected tab waits to hear about a change that arrived while a
+ * burst was already in flight. Short enough that nobody watching a deploy can
+ * tell the difference from an instant push, long enough that a whole
+ * reconciliation pass collapses into a handful of refetches instead of one
+ * per run and job. */
+const EVENT_COALESCE_MS = 300;
+
+/** How many distinct filter combinations keep a built response around. The
+ * `q` parameter changes on every keystroke in the search box, so this has to
+ * be bounded; a dozen covers everyone watching the same board through the
+ * usual handful of tabs and filters, which is what this cache is for. */
+const MAX_CACHED_RESPONSES = 12;
+
+interface CachedResponse {
+  version: number;
+  body: string;
+  /** Built on first request from a client that accepts gzip, then reused --
+   * compressing a 2MB board is worth doing once per change, never once per
+   * viewer. */
+  gzipped: Buffer | null;
+}
+
+/** Below this, compression costs more than the bytes it saves. */
+const GZIP_MIN_BYTES = 1024;
+
+/**
+ * One built response per (filter, state version), shared by every viewer.
+ *
+ * Without this, the cost of the dashboard scales with how many people have it
+ * open: each request walks every repo and run, copies each one, sorts, and
+ * serializes -- measured at ~6ms and ~2MB for 100 repos, so three people
+ * watching a release cost three times that, on a single-threaded process,
+ * during the minutes it's least affordable. The board is identical for all of
+ * them, so it's built once and handed to everyone.
+ *
+ * Correctness comes from the version counter, not a timer: any mutation bumps
+ * it, which retires every cached entry. A viewer can never be served state
+ * older than the last thing that happened.
+ */
+function createResponseCache(state: StateStore) {
+  const entries = new Map<string, CachedResponse>();
+
+  return {
+    /** The built JSON, plus a tag identifying exactly which state it
+     * reflects -- so a viewer polling an unchanged board gets a 304 and no
+     * body at all, instead of the same payload it already has. */
+    get(
+      key: string,
+      build: () => unknown,
+      wantsGzip: boolean,
+    ): { body: string | Buffer; gzipped: boolean; etag: string } {
+      const version = state.version;
+      let entry = entries.get(key);
+
+      if (!entry || entry.version !== version) {
+        entry = { version, body: JSON.stringify(build()), gzipped: null };
+        // Delete before set so a refreshed key moves to the end of the Map's
+        // insertion order, making the eviction below drop the least recently
+        // built entry rather than an actively used one.
+        entries.delete(key);
+        entries.set(key, entry);
+        if (entries.size > MAX_CACHED_RESPONSES) {
+          const oldest = entries.keys().next().value;
+          if (oldest !== undefined) entries.delete(oldest);
+        }
+      }
+
+      if (wantsGzip && entry.body.length >= GZIP_MIN_BYTES) {
+        entry.gzipped ??= gzipSync(entry.body);
+        return { body: entry.gzipped, gzipped: true, etag: etagFor(version, key) };
+      }
+      return { body: entry.body, gzipped: false, etag: etagFor(version, key) };
+    },
+  };
+}
+
+/**
+ * One subscription to state for the whole process, fanned out to however many
+ * tabs are connected.
+ *
+ * The alternative -- a listener and a timer per connection -- makes the
+ * server's own bookkeeping scale with the audience, which is backwards for a
+ * board whose whole job is being watched by a room full of people during a
+ * release. Here, a burst of mutations costs one coalescing timer and one
+ * decision no matter whether one person or twenty have it open; all that
+ * grows is the socket writes themselves.
+ */
+function createEventBroadcaster(state: StateStore) {
+  const clients = new Set<Response>();
+  let pendingChange = false;
+  let coalesceTimer: ReturnType<typeof setInterval> | null = null;
+
+  const flush = (): void => {
+    pendingChange = false;
+    for (const client of clients) client.write('data: change\n\n');
+  };
+
+  // Leading edge, then at most one ping per window. An isolated change -- the
+  // common case, one webhook arriving -- still goes out the instant it
+  // happens; the timer only exists while changes keep arriving, and stops
+  // itself on the first quiet window.
+  state.on('change', () => {
+    if (clients.size === 0) return;
+    pendingChange = true;
+    if (coalesceTimer) return;
+    flush();
+    coalesceTimer = setInterval(() => {
+      if (pendingChange) {
+        flush();
+        return;
+      }
+      clearInterval(coalesceTimer as ReturnType<typeof setInterval>);
+      coalesceTimer = null;
+    }, EVENT_COALESCE_MS);
+  });
+
+  return {
+    add(res: Response): void {
+      clients.add(res);
+    },
+    remove(res: Response): void {
+      clients.delete(res);
+    },
+  };
+}
+
+/**
+ * Whether the client already holds this exact version of the board.
+ *
+ * Deliberately not Express's `req.fresh`: that treats a request carrying
+ * `Cache-Control: no-cache` as "send the whole body", which is right for a
+ * caching proxy in the middle and wrong here. This *is* the origin, and a 304
+ * is precisely what revalidating with the origin is supposed to produce.
+ * Node's own fetch attaches that header to every conditional request, so
+ * relying on `req.fresh` silently costs a full payload on each poll.
+ */
+function isNotModified(req: Request, etag: string): boolean {
+  const header = req.headers['if-none-match'];
+  if (!header) return false;
+  return header
+    .split(',')
+    .map((token) => token.trim())
+    .some((token) => token === '*' || token === etag);
+}
+
+/** A filter key can hold anything someone typed into the search box, and an
+ * ETag header is a quoted string -- so the key is folded into a short hex
+ * hash (FNV-1a) rather than embedded raw. */
+function etagFor(version: number, key: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `W/"${version}-${hash.toString(16)}"`;
+}
 
 /** Bounds brute-force guessing of a weak CONVOY_API_KEY -- a strong random
  * key (the README recommends `openssl rand -base64 32`) doesn't need this,
@@ -93,6 +251,42 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
   // that would make secure cookies never get set in production.
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '10kb' }));
+
+  const cache = createResponseCache(state);
+  const broadcaster = createEventBroadcaster(state);
+
+  /**
+   * Serves a JSON response built once and shared by every viewer.
+   *
+   * Three things keep the cost of an extra pair of eyes at roughly zero: the
+   * board is built once per change rather than once per request, it's
+   * compressed once, and a viewer whose copy is already current gets a 304
+   * with no body instead of the payload again -- which is what the 30-second
+   * safety-net poll in every open tab does most of the time.
+   */
+  function sendCached(req: Request, res: Response, key: string, build: () => unknown): void {
+    const wantsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+    const { body, gzipped, etag } = cache.get(key, build, wantsGzip);
+
+    res.set('ETag', etag);
+    // Whether a cache may reuse this response depends on the request's
+    // Accept-Encoding, since the same URL can answer with either form.
+    res.set('Vary', 'Accept-Encoding');
+    // Store it, but never reuse it without asking first. A board on a screen
+    // during a deploy showing something a browser decided was still fresh
+    // would be worse than any amount of bandwidth saved -- and asking is
+    // cheap, since the answer is usually 304 with no body.
+    res.set('Cache-Control', 'no-cache');
+    res.type('application/json');
+
+    if (isNotModified(req, etag)) {
+      res.status(304).end();
+      return;
+    }
+
+    if (gzipped) res.set('Content-Encoding', 'gzip');
+    res.send(body);
+  }
 
   // Registered before the auth gate on purpose: Kubernetes' own liveness/
   // readiness probes hit this with no credentials, and health status isn't
@@ -191,17 +385,20 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
       typeof maxAgeHoursRaw === 'string' && Number.isFinite(Number(maxAgeHoursRaw))
         ? Number(maxAgeHoursRaw)
         : undefined;
-    res.json(state.getSnapshot({ view, repo, q, maxAgeHours }));
+    sendCached(req, res, `state|${view ?? ''}|${repo ?? ''}|${q ?? ''}|${maxAgeHours ?? ''}`, () =>
+      state.getSnapshot({ view, repo, q, maxAgeHours }),
+    );
   });
 
-  app.get('/api/repos', (_req, res) => {
-    const repos = state.listRepos().map((r) => ({
-      fullName: r.fullName,
-      private: r.private,
-      runCount: r.runs.size,
-      lastReconciledAt: r.lastReconciledAt,
+  app.get('/api/repos', (req, res) => {
+    sendCached(req, res, 'repos', () => ({
+      repos: state.listRepos().map((r) => ({
+        fullName: r.fullName,
+        private: r.private,
+        runCount: r.runs.size,
+        lastReconciledAt: r.lastReconciledAt,
+      })),
     }));
-    res.json({ repos });
   });
 
   // Push, not poll: tells connected tabs the instant a webhook changes
@@ -209,6 +406,15 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
   // poll. Only ever sends a "something changed, go refetch" ping -- the
   // actual data still comes from /api/state, so there's one source of
   // truth for the shape of a run instead of two.
+  //
+  // Coalesced, because a ping is never free on the client: every one of them
+  // makes every connected tab refetch the whole board. State emits 'change'
+  // per mutation -- per run, per job -- so one reconciliation pass or one
+  // release wave is hundreds of emissions within seconds, and five tabs open
+  // during a deploy turn that into hundreds of requests this single-threaded
+  // process serves to itself, exactly when people are watching. Batching them
+  // costs nothing that matters: the first change still goes out immediately,
+  // and a burst is worth one refetch, not four hundred.
   app.get('/api/events', (req, res) => {
     res.set({
       'Content-Type': 'text/event-stream',
@@ -217,10 +423,7 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
     });
     res.flushHeaders();
 
-    const onChange = (): void => {
-      res.write('data: change\n\n');
-    };
-    state.on('change', onChange);
+    broadcaster.add(res);
 
     // Without a periodic write, an idle connection gets silently dropped by
     // most proxies/load balancers after their own timeout (often ~60s).
@@ -228,7 +431,7 @@ export function createApiApp(state: StateStore, options: ApiAppOptions): Express
 
     req.on('close', () => {
       clearInterval(heartbeat);
-      state.off('change', onChange);
+      broadcaster.remove(res);
     });
   });
 

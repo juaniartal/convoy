@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createApiApp } from '../src/api/routes.js';
@@ -285,6 +285,169 @@ describe('createApiApp SSE events endpoint', () => {
     expect(new TextDecoder().decode(value)).toContain('data: change');
 
     controller.abort();
+    server.close();
+  });
+
+  // The failure this guards against isn't a wrong board, it's a slow one:
+  // every ping makes every connected tab refetch everything, and state emits
+  // 'change' per run and per job. Unbatched, one reconciliation pass over a
+  // busy org is hundreds of pings within seconds -- multiplied by every tab
+  // open during a release.
+  it('collapses a burst of mutations into a small number of pings', async () => {
+    const state = new StateStore();
+    const app = createApiApp(state, {
+      publicDir,
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
+    });
+    const { server, baseUrl } = await listen(app);
+    const controller = new AbortController();
+
+    const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
+    const reader = res.body!.getReader();
+
+    // Stands in for a reconciliation pass: 200 mutations back to back, the
+    // shape of upsertRun/upsertJob walking an org's worth of runs.
+    for (let i = 0; i < 200; i++) {
+      state.upsertRepo({ id: i, fullName: `org/repo-${i}`, private: true, defaultBranch: 'main' });
+    }
+
+    // One read is enough to prove the leading edge fired; the count below is
+    // what proves the rest of the burst was collapsed rather than sent.
+    const { value } = await reader.read();
+    const pings = new TextDecoder().decode(value).match(/data: change/g) ?? [];
+    expect(pings.length).toBe(1);
+
+    controller.abort();
+    server.close();
+  });
+
+  // The audience is the thing that must not multiply cost: a board watched by
+  // five people during a release has to be the same work for the server as a
+  // board watched by one.
+  it('subscribes to state once no matter how many clients connect', async () => {
+    const state = new StateStore();
+    const before = state.listenerCount('change');
+    const app = createApiApp(state, {
+      publicDir,
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
+    });
+    const { server, baseUrl } = await listen(app);
+
+    const controllers = [new AbortController(), new AbortController(), new AbortController()];
+    await Promise.all(controllers.map((c) => fetch(`${baseUrl}/api/events`, { signal: c.signal })));
+
+    expect(state.listenerCount('change') - before).toBe(1);
+
+    controllers.forEach((c) => c.abort());
+    server.close();
+  });
+});
+
+describe('createApiApp shared board', () => {
+  function appWith(state: StateStore) {
+    return createApiApp(state, {
+      publicDir,
+      getHealthInfo: () => ({
+        installationCount: 0,
+        lastReconciledAt: null,
+        lastWebhookReceivedAt: null,
+      }),
+    });
+  }
+
+  function seed(state: StateStore, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const full = `org/repo-${i}`;
+      state.upsertRepo({ id: i, fullName: full, private: true, defaultBranch: 'main' });
+      state.upsertRun(full, {
+        id: i,
+        runNumber: i,
+        workflowName: 'deploy',
+        event: 'push',
+        headBranch: 'main',
+        headSha: 'a'.repeat(40),
+        status: 'completed',
+        conclusion: 'success',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        htmlUrl: `https://github.com/${full}/actions/runs/${i}`,
+        actor: { login: 'someone' },
+        category: 'deploy',
+      });
+    }
+  }
+
+  it('builds the board once for many viewers, and again after a change', async () => {
+    const state = new StateStore();
+    seed(state, 5);
+    const buildSpy = vi.spyOn(state, 'getSnapshot');
+    const { server, baseUrl } = await listen(appWith(state));
+
+    // Three people opening the same board.
+    const bodies = await Promise.all(
+      [1, 2, 3].map(async () => (await fetch(`${baseUrl}/api/state?view=all`)).text()),
+    );
+    expect(buildSpy).toHaveBeenCalledTimes(1);
+    expect(new Set(bodies).size).toBe(1); // everyone sees the identical board
+
+    // A new run must retire it -- a cache that can serve stale state during a
+    // deploy is worse than no cache at all.
+    seed(state, 6);
+    await fetch(`${baseUrl}/api/state?view=all`);
+    expect(buildSpy).toHaveBeenCalledTimes(2);
+
+    server.close();
+  });
+
+  it('answers an unchanged poll with 304 and no body', async () => {
+    const state = new StateStore();
+    seed(state, 3);
+    const { server, baseUrl } = await listen(appWith(state));
+
+    const first = await fetch(`${baseUrl}/api/state?view=all`);
+    const etag = first.headers.get('etag');
+    expect(etag).toBeTruthy();
+
+    // What every open tab's 30-second safety-net poll looks like when nothing
+    // has happened since -- which is most polls, most of the time.
+    const second = await fetch(`${baseUrl}/api/state?view=all`, {
+      headers: { 'If-None-Match': etag as string },
+    });
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe('');
+
+    // ...and stops being fresh the moment something actually happens.
+    seed(state, 4);
+    const third = await fetch(`${baseUrl}/api/state?view=all`, {
+      headers: { 'If-None-Match': etag as string },
+    });
+    expect(third.status).toBe(200);
+
+    server.close();
+  });
+
+  it('compresses a large board once and serves it to everyone', async () => {
+    const state = new StateStore();
+    seed(state, 60); // comfortably past the compression threshold
+    const { server, baseUrl } = await listen(appWith(state));
+
+    const res = await fetch(`${baseUrl}/api/state?view=all`, {
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    expect(res.headers.get('content-encoding')).toBe('gzip');
+    expect(res.headers.get('vary')).toContain('Accept-Encoding');
+    // fetch decompresses transparently -- the board still has to arrive whole.
+    const parsed = (await res.json()) as { runs: unknown[] };
+    expect(parsed.runs).toHaveLength(60);
+
     server.close();
   });
 });
