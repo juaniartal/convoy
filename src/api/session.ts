@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 export const SESSION_COOKIE = 'convoy_session';
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 interface Session {
   expiresAt: number;
@@ -15,6 +16,15 @@ interface Session {
  */
 export class SessionStore {
   private sessions = new Map<string, Session>();
+
+  constructor() {
+    // Sweeping only on create leaves expired sessions resident for as long as
+    // nobody logs in -- on a dashboard people sign into once and leave open
+    // for weeks, that's most of the time. unref'd so it never holds the
+    // process open on its own.
+    const timer = setInterval(() => this.sweep(), SESSION_SWEEP_INTERVAL_MS);
+    timer.unref();
+  }
 
   create(): string {
     this.sweep();

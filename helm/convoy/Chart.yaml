@@ -2,8 +2,8 @@ apiVersion: v2
 name: convoy
 description: Self-hosted, real-time GitHub Actions pipeline visualizer for your whole organization.
 type: application
-version: 0.1.0
-appVersion: '0.1.0'
+version: 0.1.1
+appVersion: '1.0.1'
 home: https://github.com/juaniartal/convoy
 sources:
   - https://github.com/juaniartal/convoy

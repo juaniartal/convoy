@@ -42,13 +42,30 @@ export interface StateFilter {
 export class StateStore extends EventEmitter {
   private repos = new Map<string, RepoState>();
 
+  private _version = 0;
+
+  /** Bumped on every mutation. Lets a caller tell "nothing has changed since
+   * I last built this" without diffing anything -- the API layer uses it to
+   * build one shared response for every connected viewer instead of one per
+   * viewer (see api/routes.ts). */
+  get version(): number {
+    return this._version;
+  }
+
+  /** Every mutation goes through here instead of calling emit directly, so
+   * the version counter can never drift out of step with the event. */
+  private changed(): void {
+    this._version++;
+    this.emit('change');
+  }
+
   constructor() {
     super();
-    // One listener per connected browser tab (the SSE endpoint), not per
-    // repo or run -- Node's default cap of 10 is sized for typical service
-    // event buses, not "however many tabs someone has this dashboard open
-    // in." 50 is a generous ceiling for a single self-hosted instance.
-    this.setMaxListeners(50);
+    // The API layer subscribes exactly once and fans out to every connected
+    // tab itself (see api/routes.ts's broadcaster), so this never grows with
+    // the audience. The headroom over Node's default of 10 is for tests and
+    // any future internal subscriber, not per-viewer listeners.
+    this.setMaxListeners(20);
   }
 
   upsertRepo(identity: RepoIdentity): RepoState {
@@ -57,18 +74,18 @@ export class StateStore extends EventEmitter {
       existing.id = identity.id;
       existing.private = identity.private;
       existing.defaultBranch = identity.defaultBranch;
-      this.emit('change');
+      this.changed();
       return existing;
     }
     const repo: RepoState = { ...identity, runs: new Map(), lastReconciledAt: null };
     this.repos.set(identity.fullName, repo);
-    this.emit('change');
+    this.changed();
     return repo;
   }
 
   removeRepo(fullName: string): void {
     this.repos.delete(fullName);
-    this.emit('change');
+    this.changed();
   }
 
   markReconciled(fullName: string, at: string): void {
@@ -116,7 +133,7 @@ export class StateStore extends EventEmitter {
     const run: RunState = { ...data, jobs: existing?.jobs ?? new Map() };
     repo.runs.set(data.id, run);
     this.evictOldest(repo);
-    this.emit('change');
+    this.changed();
     return run;
   }
 
@@ -148,7 +165,7 @@ export class StateStore extends EventEmitter {
       repo.runs.set(runId, run);
     }
     run.jobs.set(job.id, job);
-    this.emit('change');
+    this.changed();
   }
 
   private evictOldest(repo: RepoState): void {
