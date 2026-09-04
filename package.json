@@ -24,7 +24,7 @@
     "openid-client": "^6.8.6",
     "probot": "^14.3.2",
     "yaml": "^2.5.1",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
