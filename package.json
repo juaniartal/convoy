@@ -1,6 +1,6 @@
 {
   "name": "convoy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Self-hosted, real-time GitHub Actions pipeline visualizer for an entire organization.",
   "license": "MIT",
   "private": true,
