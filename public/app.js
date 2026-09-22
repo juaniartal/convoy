@@ -51,6 +51,10 @@ let lastRuns = [];
 let installedRepos = []; // every repo the GitHub App is installed on, regardless of activity
 let lastError = null;
 let lastFetchedAt = null;
+// Last /api/healthz payload: what tells the LIVE badge whether GitHub is
+// actually reaching this instance, rather than just whether the browser can
+// reach the board.
+let lastHealth = null;
 let selectedRepo = repoFromHash(); // null = grid view; otherwise a repo full name
 let favoritesOnly = false;
 const favorites = new Set(JSON.parse(localStorage.getItem('convoy-favorites') || '[]'));
@@ -164,7 +168,19 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem('convoy-theme', theme);
   const btn = document.getElementById('themeToggleBtn');
-  if (btn) btn.innerHTML = theme === 'dark' ? '<span>☀ Light mode</span>' : '<span>🌙 Dark mode</span>';
+  if (btn) {
+    const icon = theme === 'dark' ? 'ico-sun' : 'ico-moon';
+    const label = theme === 'dark' ? 'Light mode' : 'Dark mode';
+    btn.innerHTML = `<svg class="ico" aria-hidden="true"><use href="#${icon}"/></svg><span>${label}</span>`;
+  }
+}
+
+function toggleSection(id) {
+  const section = document.getElementById(id);
+  if (!section) return;
+  const collapsed = section.classList.toggle('collapsed');
+  const title = section.querySelector('.sidebar-section-title');
+  if (title) title.setAttribute('aria-expanded', String(!collapsed));
 }
 
 function toggleTheme() {
@@ -228,7 +244,7 @@ let refetchQueued = false;
 
 async function fetchStateOnce() {
   const seq = ++fetchSeq;
-  let runs, repos;
+  let runs, repos, health;
   let error = null;
   try {
     // Overview needs both categories at once to split them into two charts
@@ -236,7 +252,11 @@ async function fetchStateOnce() {
     const params = new URLSearchParams({ view: currentTab === 'overview' ? 'all' : currentTab });
     if (searchQuery) params.set('q', searchQuery);
     if (hideInactive) params.set('maxAgeHours', String(STALE_AFTER_HOURS));
-    const [stateRes, reposRes] = await Promise.all([fetch(`/api/state?${params}`), fetch('/api/repos')]);
+    const [stateRes, reposRes, healthRes] = await Promise.all([
+      fetch(`/api/state?${params}`),
+      fetch('/api/repos'),
+      fetch('/api/healthz'),
+    ]);
     if (stateRes.status === 401) {
       location.href = '/login';
       return;
@@ -244,6 +264,7 @@ async function fetchStateOnce() {
     if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
     const data = await stateRes.json();
     runs = data.runs;
+    if (healthRes.ok) health = await healthRes.json();
     if (reposRes.ok) repos = (await reposRes.json()).repos;
   } catch (err) {
     error = err.message || 'fetch failed';
@@ -256,6 +277,7 @@ async function fetchStateOnce() {
   } else {
     lastRuns = runs;
     if (repos) installedRepos = repos;
+    if (health) lastHealth = health;
     lastError = null;
     lastFetchedAt = Date.now();
   }
@@ -541,6 +563,8 @@ function renderSidebarFilters(groups) {
   const c = countRepoBuckets(groups);
   const el = document.getElementById('sidebarFilters');
   if (el) {
+    // Icon per row, coloured by what that row means -- the same green/red/
+    // amber a card uses, so the sidebar and the board read as one thing.
     el.innerHTML = [
       ['all', 'All', c.total],
       ['arrived', 'Arrived', c.arrived],
@@ -550,7 +574,8 @@ function renderSidebarFilters(groups) {
     ]
       .map(
         ([f, label, count]) =>
-          `<button class="sidebar-filter ${currentFilter === f ? 'active' : ''}" onclick="setFilter('${f}')">
+          `<button class="sidebar-filter ${currentFilter === f ? 'active' : ''}" data-state="${f}" onclick="setFilter('${f}')">
+            <svg class="ico" aria-hidden="true"><use href="#ico-${f}"/></svg>
             <span>${label}</span><span class="count">${count}</span>
           </button>`,
       )
@@ -560,8 +585,86 @@ function renderSidebarFilters(groups) {
   if (favBtn) favBtn.classList.toggle('active', favoritesOnly);
 }
 
+
+/** How far behind the newest run activity a webhook can be before we call it
+ * lagging. A webhook lands within a second or two of the event, so anything
+ * past this means reconciliation found the change first -- which is exactly
+ * what happens when GitHub can't reach this instance. */
+const WEBHOOK_LAG_TOLERANCE_MS = 90_000;
+
+/** Only run activity this recent counts as evidence either way -- older than
+ * this and nothing has happened lately, so there is nothing to conclude. */
+const ACTIVITY_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * What the badge is allowed to claim.
+ *
+ * The naive version -- "green if a webhook arrived recently" -- reads as
+ * broken every quiet afternoon, because no webhook arrives when nothing is
+ * running. So the badge only calls out a problem when there is evidence of
+ * one: something changed on the board that no webhook told us about.
+ *
+ *   LIVE     a webhook arrived, or nothing has changed since the last one
+ *   POLLING  runs changed well after the last webhook -- GitHub isn't
+ *            reaching us, and the board is running on the 5-minute sweep
+ *   IDLE     nothing has run recently and no webhook has ever arrived;
+ *            there is genuinely nothing to report yet
+ */
+function liveStatus() {
+  if (lastError) return { state: 'error', label: 'ERROR', hint: lastError };
+
+  const webhookAt = lastHealth?.lastWebhookReceivedAt
+    ? Date.parse(lastHealth.lastWebhookReceivedAt)
+    : null;
+  const newestRunAt = lastRuns.reduce(
+    (newest, run) => Math.max(newest, Date.parse(run.updatedAt) || 0),
+    0,
+  );
+  const recentActivity = newestRunAt > 0 && Date.now() - newestRunAt < ACTIVITY_WINDOW_MS;
+
+  if (!webhookAt) {
+    return recentActivity
+      ? {
+          state: 'polling',
+          label: 'POLLING',
+          hint: 'Runs are showing up, but no webhook has ever arrived — GitHub cannot reach this instance. Updates land on the 5-minute sweep instead of instantly.',
+        }
+      : {
+          state: 'idle',
+          label: 'IDLE',
+          hint: 'Nothing has run recently and no webhook has arrived yet. Trigger a run to see whether updates come through live.',
+        };
+  }
+
+  if (recentActivity && newestRunAt - webhookAt > WEBHOOK_LAG_TOLERANCE_MS) {
+    return {
+      state: 'polling',
+      label: 'POLLING',
+      hint: 'The board changed well after the last webhook — GitHub is not reaching this instance right now, so updates are arriving on the 5-minute sweep.',
+    };
+  }
+
+  return {
+    state: 'live',
+    label: 'LIVE',
+    hint: `Webhooks are arriving — last one ${Math.max(0, Math.round((Date.now() - webhookAt) / 1000))}s ago. Runs show up as they happen.`,
+  };
+}
+
+
+/** The tab title, for the board's real home: a pinned tab nobody is looking
+ * at. What matters from across the room is whether something is moving and
+ * whether anything broke, so only those two make it into the title. */
+function updateTabTitle(counts) {
+  const parts = [];
+  if (counts.down) parts.push(`${counts.down} down`);
+  if (counts.rolling) parts.push(`${counts.rolling} rolling`);
+  document.title = parts.length ? `${parts.join(' · ')} — Convoy` : 'Convoy — Release Board';
+}
+
 function renderSummary(groups) {
   const c = countRepoBuckets(groups);
+  updateTabTitle(c);
   const el = document.getElementById('summary');
 
   // renderSummary rebuilds the whole control bar's innerHTML on every poll,
@@ -571,8 +674,9 @@ function renderSummary(groups) {
   const hadFocus = document.activeElement === searchEl;
   const selStart = hadFocus ? searchEl.selectionStart : null;
   const selEnd = hadFocus ? searchEl.selectionEnd : null;
-  const liveState = lastError ? 'error' : 'live';
-  const liveLabel = lastError ? 'ERROR' : 'LIVE';
+  const live = liveStatus();
+  const liveState = live.state;
+  const liveLabel = live.label;
   const updatedText = lastFetchedAt
     ? `· updated ${Math.max(0, Math.round((Date.now() - lastFetchedAt) / 1000))}s ago`
     : '';
@@ -588,7 +692,7 @@ function renderSummary(groups) {
 
   el.innerHTML = `
     <div class="ctrl-row">
-      <span class="live-tag"><span class="live-dot ${liveState}"></span>${liveLabel}</span>
+      <span class="live-tag" title="${live.hint.replace(/"/g, '&quot;')}"><span class="live-dot ${liveState}"></span>${liveLabel}</span>
       <span class="headline">${headline}</span>
       <span class="pill green">${c.arrived} arrived</span>
       <span class="pill red">${c.down} down</span>

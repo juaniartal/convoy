@@ -36,7 +36,7 @@ body {
 .sub { color: var(--fog); font-size: 11.5px; margin-top: 1px; }
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
-.sidebar-nav a, .sidebar-nav button {
+.sidebar-nav a, .sidebar-nav button { display: flex; align-items: center; gap: 9px;
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px;
   color: var(--fog); font-size: 13px; font-weight: 600; text-decoration: none;
   border: none; background: transparent; cursor: pointer; text-align: left; width: 100%;
@@ -44,16 +44,51 @@ body {
 .sidebar-nav a:hover, .sidebar-nav button:hover { background: var(--inset); color: var(--text); }
 .sidebar-nav button.active { background: var(--signal); color: #fff; }
 
-.sidebar-section-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--fog); font-weight: 700; padding: 0 10px; margin-bottom: 5px; }
-.sidebar-filter {
+/* Section headers fold their group away, like ArgoCD's filter panel. */
+.sidebar-section-title {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fog); font-weight: 700; padding: 0 10px; margin-bottom: 5px;
+  border: none; background: transparent; cursor: pointer; font-family: var(--sans);
+}
+.sidebar-section-title:hover { color: var(--text); }
+.sidebar-section-title .caret {
+  width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2.4;
+  stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease;
+}
+.sidebar-section.collapsed .sidebar-section-title .caret { transform: rotate(-90deg); }
+.sidebar-section.collapsed .sidebar-section-body { display: none; }
+
+/* Three columns rather than space-between: the icons line up down the rail
+   and every label starts at the same x, which is most of what makes a list
+   like this read as deliberate. */
+.sidebar-filter {
+  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 9px; width: 100%;
   padding: 7px 10px; border-radius: 6px; color: var(--fog); font-size: 13px; font-weight: 600;
   border: none; background: transparent; cursor: pointer; text-align: left; font-family: var(--sans);
 }
 .sidebar-filter:hover { background: var(--inset); color: var(--text); }
 .sidebar-filter.active { background: var(--signal); color: #fff; }
 .sidebar-filter .count { font-family: var(--mono); font-size: 12px; font-weight: 700; }
+
+.ico {
+  width: 15px; height: 15px; display: block; flex-shrink: 0;
+  stroke: currentColor; fill: none; stroke-width: 1.9;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* The status colour lives on the icon, not the label -- the row stays
+   readable, and the colour still says which bucket it is at a glance. */
+.sidebar-filter[data-state='all'] .ico { color: var(--fog); }
+.sidebar-filter[data-state='arrived'] .ico { color: var(--arrived); }
+.sidebar-filter[data-state='down'] .ico { color: var(--down); }
+.sidebar-filter[data-state='rolling'] .ico { color: var(--rolling); }
+.sidebar-filter[data-state='staged'] .ico { color: var(--staged); }
+.sidebar-filter[data-state='star'] .ico { color: var(--star); }
+.sidebar-filter[data-state='star'].active .ico { fill: currentColor; }
+/* On the selected row the background is the accent, so a coloured icon on
+   top of it would fight; white reads cleanly instead. */
+.sidebar-filter.active .ico { color: #fff; }
 .theme-toggle { margin-top: auto; }
 
 /* Tabs */
@@ -105,6 +140,9 @@ input.search::placeholder { color: var(--fog); }
   padding: 4px 9px; border-radius: 4px; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .live-dot.live { background: var(--arrived); animation: dotBreathe 2.4s ease-in-out infinite; }
+.live-dot.polling { background: var(--rolling); animation: dotBreathe 2.4s ease-in-out infinite; }
+.live-dot.idle { background: var(--staged); }
+.live-tag { cursor: help; }
 .live-dot.error { background: var(--down); }
 @keyframes dotBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
@@ -280,3 +318,19 @@ footer .mono { font-family: var(--mono); }
 .donut-legend { display: flex; flex-direction: column; gap: 7px; align-self: stretch; }
 .donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fog); }
 .donut-legend-item .repo-dot { animation: none; width: 9px; height: 9px; }
+
+
+/* Six things on this board move on their own -- dots breathing, cards
+   flashing as runs land, the refresh spinner. On a screen somebody leaves up
+   all day that is a lot of motion to be stuck with, and for anyone sensitive
+   to it, it is the difference between a useful board and one they have to
+   close. Honour the OS-level preference: the board still updates, it just
+   stops animating while it does. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
