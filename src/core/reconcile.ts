@@ -3,6 +3,7 @@ import { classifyRun } from './classify.js';
 import {
   GithubClient,
   listInstallationRepos,
+  listInProgressRunsForRepo,
   listJobsForRun,
   listWorkflowRunsForRepo,
   pool,
@@ -26,6 +27,11 @@ export interface ReconcileOptions {
    * transient 500 or network blip on one repo out of hundreds shouldn't
    * take reconciliation down for every other repo in this pass. */
   onRepoError?: (repoFullName: string, err: unknown) => void;
+  /** Also ask each repo what it is running right now, regardless of when
+   * those runs were created. Costs one extra request per repo, and only
+   * earns it when webhooks aren't arriving -- see
+   * listInProgressRunsForRepo for the case it exists to catch. */
+  includeInProgress?: boolean;
 }
 
 const DEFAULTS: Required<ReconcileOptions> = {
@@ -33,6 +39,7 @@ const DEFAULTS: Required<ReconcileOptions> = {
   lookbackHours: 2,
   minRateRemaining: 200,
   onRepoError: () => {},
+  includeInProgress: false,
 };
 
 /**
@@ -73,6 +80,28 @@ export async function runReconciliation(
 
         const [owner, name] = repo.full_name.split('/') as [string, string];
         const result = await listWorkflowRunsForRepo(client, owner, name, cutoff);
+
+        // Merged rather than replaced: the creation-window query is still the
+        // one that finds everything recent, and this only adds the handful it
+        // structurally cannot see. Keyed by id so a run both queries return
+        // is processed once.
+        if (opts.includeInProgress && !result.rateLimited && !result.skipped) {
+          const active = await listInProgressRunsForRepo(client, owner, name);
+          if (active.rateRemaining != null) {
+            lowestRateSeen =
+              lowestRateSeen == null
+                ? active.rateRemaining
+                : Math.min(lowestRateSeen, active.rateRemaining);
+          }
+          if (active.rateLimited) {
+            aborted = true;
+            return;
+          }
+          const seen = new Set(result.runs.map((r) => r.id));
+          for (const run of active.runs) {
+            if (!seen.has(run.id)) result.runs.push(run);
+          }
+        }
         if (result.rateRemaining != null) {
           lowestRateSeen =
             lowestRateSeen == null

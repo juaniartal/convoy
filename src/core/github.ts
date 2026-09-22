@@ -98,10 +98,15 @@ export async function listWorkflowRunsForRepo(
   owner: string,
   repo: string,
   createdAfter?: string,
+  /** Narrows to runs in this state instead of a creation window. The two are
+   * mutually exclusive on purpose -- see listInProgressRunsForRepo for why
+   * asking by state is the only way to find some runs at all. */
+  status?: 'in_progress',
 ): Promise<RunsResult> {
   try {
     const params: Record<string, unknown> = { owner, repo, per_page: 100 };
-    if (createdAfter) params.created = `>=${createdAfter}`;
+    if (status) params.status = status;
+    else if (createdAfter) params.created = `>=${createdAfter}`;
     const res = await client.request<{ workflow_runs: WorkflowRunListItem[] }>(
       'GET /repos/{owner}/{repo}/actions/runs',
       params,
@@ -132,6 +137,31 @@ function isRateLimitExceeded(err: unknown): boolean {
   const headers = (err as { response?: { headers?: Record<string, string | number | undefined> } })
     .response?.headers;
   return headers?.['x-ratelimit-remaining'] === '0';
+}
+
+/**
+ * Runs that are executing right now, whenever they were created.
+ *
+ * The gap this closes: re-running an old workflow does NOT give it a new
+ * creation date. GitHub keeps `created_at` from the original attempt and only
+ * moves `updated_at`, and the list endpoint can filter by creation date but
+ * not by update date. So a run created three weeks ago and re-run a minute
+ * ago is invisible to the reconciliation sweep -- not late, never -- and the
+ * active-run watcher can't help either, since it only re-checks runs already
+ * on the board. Confirmed against a real installation: a re-run from 19 days
+ * earlier returned zero rows for the window the sweep asks about.
+ *
+ * Asking by state instead sidesteps the date entirely. Webhooks already cover
+ * this case (the handler takes whatever arrives, at any age), so this is only
+ * worth its request when they aren't arriving -- which is exactly when the
+ * caller turns it on.
+ */
+export async function listInProgressRunsForRepo(
+  client: GithubClient,
+  owner: string,
+  repo: string,
+): Promise<RunsResult> {
+  return listWorkflowRunsForRepo(client, owner, repo, undefined, 'in_progress');
 }
 
 export interface SingleRunResult {
