@@ -51,6 +51,88 @@ function makeClient(opts: {
 const emptyConfig = compileConfig(parseConfig({}));
 
 describe('runReconciliation', () => {
+  // The bug this covers, seen for real: re-running a workflow keeps the
+  // original creation date and only moves updated_at, and the list endpoint
+  // filters by creation date. A run created weeks ago and re-run a minute ago
+  // therefore never appears in the creation window the sweep asks about --
+  // not late, never -- and the active-run watcher can't help, because it only
+  // re-checks runs already on the board.
+  it('finds a re-run of an old workflow, which the creation window cannot see', async () => {
+    const oldReRun = fakeRun({
+      id: 99,
+      run_attempt: 2,
+      status: 'in_progress',
+      conclusion: null,
+      created_at: '2026-01-01T00:00:00.000Z', // weeks before the cutoff
+      updated_at: '2026-02-01T12:00:00.000Z', // re-run just now
+    });
+
+    const client: GithubClient = {
+      paginate: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 1, full_name: 'org/repo', private: false, default_branch: 'main', archived: false },
+        ]),
+      request: vi.fn(async (route: string, params?: Record<string, unknown>) => {
+        if (route === 'GET /repos/{owner}/{repo}/actions/runs') {
+          // The creation-window query cannot see it; the status query can.
+          const runs = params?.status === 'in_progress' ? [oldReRun] : [];
+          return { data: { workflow_runs: runs }, headers: {} };
+        }
+        return { data: { jobs: [] }, headers: {} };
+      }),
+    };
+
+    const state = new StateStore();
+    await runReconciliation(client, state, emptyConfig, {
+      includeInProgress: true,
+    });
+
+    expect(state.getRepo('org/repo')?.runs.get(99)?.status).toBe('in_progress');
+  });
+
+  it('does not spend the extra request when webhooks are covering re-runs', async () => {
+    const client = makeClient({
+      repos: [
+        { id: 1, full_name: 'org/repo', private: false, default_branch: 'main', archived: false },
+      ],
+      runsByRepo: { 'org/repo': [fakeRun()] },
+    });
+
+    await runReconciliation(client, new StateStore(), emptyConfig, {
+      includeInProgress: false,
+    });
+
+    const statusQueries = (client.request as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([, params]) => (params as Record<string, unknown>)?.status === 'in_progress',
+    );
+    expect(statusQueries).toHaveLength(0);
+  });
+
+  it('counts a run once when both queries return it', async () => {
+    const active = fakeRun({ id: 7, status: 'in_progress', conclusion: null });
+    const client: GithubClient = {
+      paginate: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 1, full_name: 'org/repo', private: false, default_branch: 'main', archived: false },
+        ]),
+      request: vi.fn(async (route: string) => {
+        if (route === 'GET /repos/{owner}/{repo}/actions/runs') {
+          return { data: { workflow_runs: [active] }, headers: {} };
+        }
+        return { data: { jobs: [] }, headers: {} };
+      }),
+    };
+
+    const state = new StateStore();
+    await runReconciliation(client, state, emptyConfig, {
+      includeInProgress: true,
+    });
+
+    expect(state.getRepo('org/repo')?.runs.size).toBe(1);
+  });
+
   it('populates state from discovered repos and classifies each run', async () => {
     const client = makeClient({
       repos: [

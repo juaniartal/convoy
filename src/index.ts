@@ -54,6 +54,12 @@ const DEPLOY_TRIGGER_COOLDOWN_MS = 3 * 60 * 1000;
  * repos GitHub hasn't gotten to. */
 const DEPLOY_TRIGGER_FOLLOWUP_DELAY_MS = 15 * 1000;
 
+/** How long without a webhook before reconciliation starts also asking each
+ * repo what it is running right now. Webhooks carry re-runs fine, so while
+ * they are arriving that extra request per repo buys nothing; once they stop,
+ * it is the only way a re-run of an older workflow is ever seen at all. */
+const WEBHOOK_SILENCE_BEFORE_DEEP_SWEEP_MS = 10 * 60 * 1000;
+
 /** Every restart starts from empty in-memory state (no database), so the
  * very first reconciliation pass needs a much wider window than the
  * ongoing safety net does — otherwise a repo that last ran more than
@@ -151,6 +157,15 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
   let lastReconciledAt: string | null = null;
   let installationCount = 0;
 
+  /** True when nothing has been delivered for a while -- including a fresh
+   * boot that has never received one. Deliberately generous: a quiet ten
+   * minutes on a small org is normal, and being wrong here only costs one
+   * request per repo on the next sweep. */
+  function webhooksLookSilent(): boolean {
+    if (!lastWebhookReceivedAt) return true;
+    return Date.now() - Date.parse(lastWebhookReceivedAt) > WEBHOOK_SILENCE_BEFORE_DEEP_SWEEP_MS;
+  }
+
   // A pass that outlives its own interval -- a big org, a slow GitHub, a
   // deploy-triggered sweep landing on top of a scheduled one -- used to start
   // a second pass on top of the first, each one making the same calls against
@@ -175,6 +190,7 @@ const app: ApplicationFunction = async (probotApp, { addHandler }) => {
         const client = await probotApp.auth(installation.id);
         const result = await runReconciliation(client, state, config, {
           ...options,
+          includeInProgress: webhooksLookSilent(),
           onRepoError: (repoFullName, err) => {
             probotApp.log.warn(
               { repoFullName, err },
