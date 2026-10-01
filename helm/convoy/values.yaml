@@ -84,6 +84,33 @@ resources:
   limits:
     memory: 512Mi
 
+# Convoy never calls the Kubernetes API, so the token a pod gets by default is
+# nothing but attack surface. Off unless something in your cluster needs it.
+automountServiceAccountToken: false
+
+# Defaults chosen to satisfy the restricted Pod Security Standard without any
+# further configuration -- the image already runs as the `node` user (uid
+# 1000), this is the cluster-side assertion of the same thing. Clusters with
+# an admission policy (Pod Security admission, Gatekeeper, Kyverno, Azure
+# Policy) reject or flag a pod that declares none of this, which is a
+# frustrating thing to discover during a rollout rather than before one.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  # Convoy writes nothing to disk: state is in memory and config is mounted
+  # read-only. Node needs no scratch space for this workload.
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
