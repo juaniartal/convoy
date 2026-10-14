@@ -334,3 +334,58 @@ footer .mono { font-family: var(--mono); }
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- release summary ---------- */
+
+.release {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 13px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.release-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.release-head .tag { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--signal); }
+.release-head .count,
+.release-head .timing { font-family: var(--mono); font-size: 11.5px; color: var(--fog); }
+.verdict {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+.verdict.ok { color: var(--arrived); }
+.verdict.bad { color: var(--down); }
+.verdict.wait { color: var(--rolling); }
+
+/* One bar for the whole release: how much of it landed, and how it landed.
+   Same three colours the cards use, so it reads without a legend. */
+.release-bar { height: 5px; border-radius: 3px; overflow: hidden; display: flex; background: var(--inset); }
+.release-bar .seg { height: 100%; transition: width 0.4s ease; }
+.release-bar .seg.ok { background: var(--arrived); }
+.release-bar .seg.bad { background: var(--down); }
+.release-bar .seg.run { background: var(--rolling); }
+
+.release .why { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.release .why li { font-size: 13px; color: var(--fog); }
+.release .why li b { color: var(--text); font-weight: 600; }
+.release .why a { color: var(--down); font-weight: 600; text-decoration: none; }
+.release .why a:hover { text-decoration: underline; }
+.release .why .muted-i { font-style: italic; }
+
+.release .missing { font-size: 12.5px; color: var(--fog); }
+.release .missing .k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rolling);
+  margin-right: 6px;
+}

@@ -49,6 +49,7 @@ function job(
   conclusion: string | null,
   startedSecAgo: number,
   completedSecAgo: number | null,
+  failedStep: string | null = null,
 ): JobState {
   const now = Date.now();
   return {
@@ -60,6 +61,7 @@ function job(
     completedAt:
       completedSecAgo == null ? null : new Date(now - completedSecAgo * 1000).toISOString(),
     htmlUrl: null,
+    failedStep,
   };
 }
 
@@ -75,7 +77,7 @@ seedRun(
 seedRun(
   'acme-corp/payments-core',
   { headBranch: 'v1.4.23', category: 'deploy', status: 'completed', conclusion: 'failure' },
-  [job(3, 'test', 'completed', 'failure', 120, 60)],
+  [job(3, 'test', 'completed', 'failure', 120, 60, 'Run unit tests')],
 );
 const rollingDeployId = seedRun(
   'acme-corp/ledger-worker',

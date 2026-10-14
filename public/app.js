@@ -14,6 +14,12 @@ const STALE_AFTER_HOURS = 48;
 // derived automatically instead of pasted.
 const RELEASE_WINDOW_MS = 60 * 60 * 1000;
 
+// How long a release tag has to stop producing new runs before the summary is
+// willing to say a repo "didn't start" it. Long enough that a wave firing
+// across dozens of repos isn't accused mid-rollout; short enough to still be
+// useful while people are looking.
+const RELEASE_SETTLE_MS = 2 * 60 * 1000;
+
 // Worst-first: a repo's overall dot reflects whichever of its pipelines
 // needs the most attention, not just its most recent one.
 const BUCKET_PRIORITY = ['down', 'rolling', 'pulled', 'staged', 'arrived'];
@@ -450,6 +456,8 @@ function render() {
   document.getElementById('overview').style.display = isOverview ? '' : 'none';
   document.getElementById('progressTrack').style.display = isOverview ? 'none' : '';
   document.getElementById('summary').style.display = isOverview ? 'none' : '';
+  const releaseEl = document.getElementById('release');
+  if (releaseEl && isOverview) releaseEl.style.display = 'none';
 
   if (isOverview) {
     renderOverview();
@@ -465,6 +473,7 @@ function render() {
   // direct link to a hidden repo doesn't break.
   const boardGroups = hideInactive ? rawGroups.filter((g) => g.pipelines.length > 0) : rawGroups;
   renderSummary(boardGroups);
+  renderReleaseSummary();
   renderProgress(boardGroups);
   renderSidebarFilters(boardGroups);
   if (selectedRepo) {
@@ -660,6 +669,153 @@ function updateTabTitle(counts) {
   if (counts.down) parts.push(`${counts.down} down`);
   if (counts.rolling) parts.push(`${counts.rolling} rolling`);
   document.title = parts.length ? `${parts.join(' · ')} — Convoy` : 'Convoy — Release Board';
+}
+
+// --- Release summary: did the whole release land, and if not, why ---------
+
+// Deploy day's actual question is not "what is on screen" but "did v1.4.26 go
+// out everywhere, and if something broke, what broke". The board answers the
+// first half a card at a time; this answers it in one line, from data already
+// on the page -- no extra request, to Convoy or to GitHub.
+function releaseSummary(runs) {
+  const deploys = runs.filter((r) => r.category === 'deploy' && r.headBranch);
+  if (!deploys.length) return null;
+
+  // Releases are keyed by tag, not by a time window -- a release *is* a tag,
+  // and that is how people ask about it ("did v1.4.26 go out?"). Ordered
+  // newest first so the current one is the head and the one before it is
+  // available as the cohort to compare against.
+  const byTag = new Map();
+  for (const run of deploys) {
+    const entry = byTag.get(run.headBranch) || { repos: new Set(), newest: run.createdAt };
+    entry.repos.add(run.repo);
+    if (run.createdAt > entry.newest) entry.newest = run.createdAt;
+    byTag.set(run.headBranch, entry);
+  }
+  const ordered = [...byTag.entries()].sort((a, b) => (a[1].newest > b[1].newest ? -1 : 1));
+  const [tag, current] = ordered[0];
+  const previous = ordered[1];
+  const newest = deploys.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  const inRelease = deploys.filter((r) => r.headBranch === tag);
+
+  const byState = { success: [], failure: [], running: [], queued: [] };
+  for (const run of inRelease) {
+    const st = stateOf(run);
+    (byState[st] ?? (byState[st] = [])).push(run);
+  }
+
+  // "Didn't start" is the most useful line here and the easiest to get wrong.
+  //
+  // Two guards, both learned from watching it be wrong: a tag only one repo
+  // carries is that repo's deploy, not a release the others skipped -- there
+  // was never a v9.0.1 for them to miss. And while runs for this tag are
+  // still appearing, a repo that hasn't started yet is simply next in the
+  // wave, not missing. So the list only appears once the tag looks like a
+  // fleet release and the wave has gone quiet.
+  // Compared against the repos that shipped the *previous* release, not every
+  // repo that has ever deployed. "Was in the last release and isn't in this
+  // one" is the actual question; the wider net drags in repos that stopped
+  // shipping months ago and buries the one that matters. Measured on real
+  // data: 3 repos named instead of 6, same board.
+  const shipped = current.repos;
+  const newestStart = current.newest;
+  const settled = Date.now() - new Date(newestStart).getTime() > RELEASE_SETTLE_MS;
+  const isFleetRelease = shipped.size > 1;
+  const missing =
+    settled && isFleetRelease && previous
+      ? [...previous[1].repos].filter((repo) => !shipped.has(repo))
+      : [];
+
+  const failures = byState.failure.map((run) => {
+    const job = (run.jobs || []).find((j) => j.conclusion === 'failure');
+    return {
+      repo: run.repo,
+      job: job ? job.name : null,
+      step: job ? job.failedStep : null,
+      url: (job && job.htmlUrl) || run.htmlUrl,
+    };
+  });
+
+  const started = inRelease.reduce((a, r) => (r.createdAt < a ? r.createdAt : a), newest.createdAt);
+  const done = byState.running.length === 0 && byState.queued.length === 0;
+  const finished = done
+    ? inRelease.reduce((a, r) => (r.updatedAt > a ? r.updatedAt : a), inRelease[0].updatedAt)
+    : null;
+
+  return {
+    tag,
+    total: inRelease.length + missing.length,
+    arrived: byState.success.length,
+    down: byState.failure.length,
+    rolling: byState.running.length + byState.queued.length,
+    missing,
+    failures,
+    started,
+    finished,
+    done,
+  };
+}
+
+function renderReleaseSummary() {
+  const el = document.getElementById('release');
+  if (!el) return;
+  const s = currentTab === 'deploys' ? releaseSummary(lastRuns) : null;
+  if (!s) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = '';
+
+  const landed = s.arrived + s.down;
+  const pct = s.total ? Math.round((landed / s.total) * 100) : 0;
+  const verdict = s.down
+    ? `<span class="verdict bad">${s.down} failed</span>`
+    : s.rolling || s.missing.length
+      ? `<span class="verdict wait">in progress</span>`
+      : `<span class="verdict ok">all clear</span>`;
+
+  const why = s.failures.length
+    ? `<ul class="why">${s.failures
+        .map(
+          (f) =>
+            `<li><a href="${escapeAttr(f.url)}" target="_blank" rel="noopener">${escapeHtml(f.repo.split('/').pop())}</a>` +
+            (f.step
+              ? ` — failed at <b>${escapeHtml(f.step)}</b>${f.job ? ` <span class="muted-i">(${escapeHtml(f.job)})</span>` : ''}`
+              : f.job
+                ? ` — <b>${escapeHtml(f.job)}</b> failed`
+                : '') +
+            `</li>`,
+        )
+        .join('')}</ul>`
+    : '';
+
+  const missingLine = s.missing.length
+    ? `<div class="missing"><span class="k">didn't start</span> ${s.missing
+        .map((r) => escapeHtml(r.split('/').pop()))
+        .join(', ')}</div>`
+    : '';
+
+  const timing = s.done
+    ? `took ${fmtDur(s.started, s.finished)}`
+    : `running for ${fmtDur(s.started, null)}`;
+
+  el.innerHTML = `
+    <div class="release-head">
+      <span class="tag">${escapeHtml(s.tag)}</span>
+      ${verdict}
+      <span class="count">${landed} of ${s.total} repos</span>
+      <span class="timing">${timing}</span>
+    </div>
+    <div class="release-bar">
+      <span class="seg ok" style="width:${s.total ? (s.arrived / s.total) * 100 : 0}%"></span>
+      <span class="seg bad" style="width:${s.total ? (s.down / s.total) * 100 : 0}%"></span>
+      <span class="seg run" style="width:${s.total ? (s.rolling / s.total) * 100 : 0}%"></span>
+    </div>
+    ${why}
+    ${missingLine}
+  `;
+  el.dataset.pct = String(pct);
 }
 
 function renderSummary(groups) {

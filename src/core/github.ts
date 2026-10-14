@@ -35,6 +35,11 @@ export interface WorkflowRunListItem {
   actor: { login: string } | null;
 }
 
+export interface WorkflowStep {
+  name: string;
+  conclusion: string | null;
+}
+
 export interface WorkflowJobListItem {
   id: number;
   name: string;
@@ -43,6 +48,22 @@ export interface WorkflowJobListItem {
   started_at: string | null;
   completed_at: string | null;
   html_url: string | null;
+  steps?: WorkflowStep[] | null;
+}
+
+/**
+ * The first step that failed, which is as close to "why did this break" as
+ * Convoy can get without reading logs -- and it costs nothing, because the
+ * steps arrive inside responses and payloads it already handles.
+ *
+ * First rather than last: once a step fails the rest are skipped or run as
+ * cleanup, so the first failure is the cause and anything after it is
+ * consequence. `failure` only -- `cancelled` and `skipped` are not something
+ * going wrong with the deploy.
+ */
+export function firstFailedStep(steps?: WorkflowStep[] | null): string | null {
+  if (!steps) return null;
+  return steps.find((s) => s.conclusion === 'failure')?.name ?? null;
 }
 
 /**
