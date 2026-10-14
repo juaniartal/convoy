@@ -1,6 +1,7 @@
 import { CompiledConfig } from '../config/overrides.js';
 import { classifyRun } from './classify.js';
 import {
+  firstFailedStep,
   GithubClient,
   listInstallationRepos,
   listInProgressRunsForRepo,
@@ -198,6 +199,7 @@ export function toJobState(job: {
   started_at: string | null;
   completed_at: string | null;
   html_url: string | null;
+  steps?: Array<{ name: string; conclusion: string | null }> | null;
 }): JobState {
   return {
     id: job.id,
@@ -207,5 +209,6 @@ export function toJobState(job: {
     startedAt: job.started_at,
     completedAt: job.completed_at,
     htmlUrl: job.html_url,
+    failedStep: firstFailedStep(job.steps),
   };
 }

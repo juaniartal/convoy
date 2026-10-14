@@ -1,5 +1,6 @@
 import { Context } from 'probot';
 import { CompiledConfig } from '../config/overrides.js';
+import { firstFailedStep } from '../core/github.js';
 import { StateStore } from '../core/state.js';
 
 /** Job-level detail (per-step status shown inside a run's card). Delivery
@@ -18,6 +19,7 @@ export function handleWorkflowJob(state: StateStore, config: CompiledConfig) {
       startedAt: job.started_at ?? null,
       completedAt: job.completed_at ?? null,
       htmlUrl: job.html_url ?? null,
+      failedStep: firstFailedStep(job.steps),
     });
   };
 }

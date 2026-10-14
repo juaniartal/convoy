@@ -8,6 +8,13 @@ export interface JobState {
   startedAt: string | null;
   completedAt: string | null;
   htmlUrl: string | null;
+  /** Name of the first step that failed, when one did. GitHub sends the full
+   * step list on every job -- in the webhook payload and in the jobs response
+   * reconciliation already fetches -- and until now all of it was discarded.
+   * Keeping just this one string is what lets a card say why a deploy broke
+   * ("Run migrations") instead of only that it did, at no API cost and
+   * without holding a step list per job in memory. */
+  failedStep: string | null;
 }
 
 export interface RunState {

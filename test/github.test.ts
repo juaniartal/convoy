@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  firstFailedStep,
   getWorkflowRun,
   GithubClient,
   listInstallationRepos,
@@ -150,5 +151,35 @@ describe('getWorkflowRun', () => {
     const result = await getWorkflowRun(client, 'org', 'repo', 1);
     expect(result.rateLimited).toBe(true);
     expect(result.run).toBeNull();
+  });
+});
+
+describe('firstFailedStep', () => {
+  // The first failure is the cause; everything after it is either skipped or
+  // cleanup, so reporting the last one would name the wrong step.
+  it('names the first failed step, not a later one', () => {
+    expect(
+      firstFailedStep([
+        { name: 'Set up job', conclusion: 'success' },
+        { name: 'Run migrations', conclusion: 'failure' },
+        { name: 'Smoke test', conclusion: 'failure' },
+      ]),
+    ).toBe('Run migrations');
+  });
+
+  it('ignores cancelled and skipped, which are not the deploy breaking', () => {
+    expect(
+      firstFailedStep([
+        { name: 'Set up job', conclusion: 'success' },
+        { name: 'Deploy', conclusion: 'cancelled' },
+        { name: 'Notify', conclusion: 'skipped' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('returns null when a job is still running or carries no steps', () => {
+    expect(firstFailedStep([{ name: 'Build', conclusion: null }])).toBeNull();
+    expect(firstFailedStep(undefined)).toBeNull();
+    expect(firstFailedStep(null)).toBeNull();
   });
 });
